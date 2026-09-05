@@ -1,13 +1,28 @@
-const { ChatOpenAI } = require('@langchain/openai');
-const { PromptTemplate } = require('@langchain/core/prompts');
-const { JsonOutputParser } = require('@langchain/core/output_parsers');
+import { ChatOpenAI } from '@langchain/openai';
+import { PromptTemplate } from '@langchain/core/prompts';
+import { JsonOutputParser } from '@langchain/core/output_parsers';
 
 /**
- * Extracts structured key-value pairs matching a target form schema 
+ * Extracts structured key-value pairs matching a target form schema
  * from an unstructured narrative text using OpenAI & LangChain.
  */
-const extractFormData = async (userStory, formSchema) => {
-  // Initialize the LLM with deterministic temperature
+export const extractFormData = async (userStory, formSchema) => {
+  const cleanedStory = typeof userStory === 'string' ? userStory.trim() : '';
+
+  if (!cleanedStory) {
+    return {};
+  }
+
+  const fields = Array.isArray(formSchema?.fields) ? formSchema.fields : [];
+
+  if (!fields.length) {
+    return {};
+  }
+
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('OPENAI_API_KEY is not configured.');
+  }
+
   const model = new ChatOpenAI({
     modelName: 'gpt-4o',
     temperature: 0,
@@ -16,12 +31,11 @@ const extractFormData = async (userStory, formSchema) => {
 
   const parser = new JsonOutputParser();
 
-  // Extract relevant field labels & keys to instruct the model
-  const expectedFields = formSchema.fields.map((f) => ({
-    key: f.name,
-    label: f.label,
-    type: f.type,
-    options: f.options ? f.options.map((o) => o.value) : undefined
+  const expectedFields = fields.map((field) => ({
+    key: field.name,
+    label: field.label,
+    type: field.type,
+    options: Array.isArray(field.options) ? field.options.map((option) => option.value) : undefined
   }));
 
   const prompt = new PromptTemplate({
@@ -48,15 +62,12 @@ INSTRUCTIONS:
   const chain = prompt.pipe(model).pipe(parser);
 
   try {
-    const response = await chain.invoke({
-      userStory,
+    return await chain.invoke({
+      userStory: cleanedStory,
       expectedFields: JSON.stringify(expectedFields, null, 2)
     });
-    return response;
   } catch (error) {
     console.error('LangChain Extraction Error:', error);
     throw new Error('Failed to parse unstructured text into structured JSON.');
   }
 };
-
-module.exports = { extractFormData };

@@ -12,51 +12,66 @@ export const DynamicFormRenderer = ({ schemaId }) => {
     formState: { errors }
   } = useForm({ mode: 'onChange' });
 
-  // Watch entire form state to evaluate dynamic dependencies
   const formValues = watch();
 
   useEffect(() => {
-    fetch(`http://localhost:5000/api/schemas/${schemaId}`)
-      .then((res) => res.json())
-      .then((data) => {
+    const loadSchema = async () => {
+      try {
+        const response = await fetch(`http://localhost:5000/api/schemas/${schemaId}`);
+
+        if (!response.ok) {
+          throw new Error(`Schema load failed (${response.status}).`);
+        }
+
+        const data = await response.json();
         setSchema(data);
+      } catch (err) {
+        console.error('Error loading schema:', err);
+      } finally {
         setLoading(false);
-      })
-      .catch((err) => console.error("Error loading schema:", err));
+      }
+    };
+
+    if (schemaId) {
+      loadSchema();
+    }
   }, [schemaId]);
 
   if (loading) return <div>Loading Form Schema...</div>;
   if (!schema) return <div>Schema failed to load.</div>;
 
   const onSubmit = (data) => {
-    console.log("Submitted Form Data:", data);
+    console.log('Submitted Form Data:', data);
   };
+
+  const formFields = schema?.fields ?? [];
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} style={{ maxWidth: '500px', margin: '0 auto' }}>
       <h2>{schema.title}</h2>
       {schema.description && <p>{schema.description}</p>}
 
-      {schema.fields.map((field) => {
-        // Evaluate dynamic "showIf" visibility rule
-        if (field.showIf) {
-          const dependentVal = formValues[field.showIf.field];
-          if (dependentVal !== field.showIf.equals) {
-            return null; // Hide input if condition is unmet
-          }
+      {formFields.map((field) => {
+        const showField = !field.showIf || formValues[field.showIf.field] === field.showIf.equals;
+
+        if (!showField) {
+          return null;
         }
 
-        // Map backend validation JSON into React Hook Form format
         const validationRules = {
           required: field.validation?.required ? 'This field is required' : false,
-          minLength: field.validation?.minLength && {
+          minLength: field.validation?.minLength ? {
             value: field.validation.minLength,
             message: `Minimum length is ${field.validation.minLength}`
-          },
-          pattern: field.validation?.pattern && {
+          } : undefined,
+          maxLength: field.validation?.maxLength ? {
+            value: field.validation.maxLength,
+            message: `Maximum length is ${field.validation.maxLength}`
+          } : undefined,
+          pattern: field.validation?.pattern ? {
             value: new RegExp(field.validation.pattern),
             message: 'Invalid input format'
-          }
+          } : undefined
         };
 
         return (
@@ -66,7 +81,7 @@ export const DynamicFormRenderer = ({ schemaId }) => {
             {field.type === 'text' && (
               <input
                 type="text"
-                placeholder={field.placeholder}
+                placeholder={field.placeholder || ''}
                 {...register(field.name, validationRules)}
               />
             )}
@@ -81,10 +96,7 @@ export const DynamicFormRenderer = ({ schemaId }) => {
             )}
 
             {field.type === 'checkbox' && (
-              <input
-                type="checkbox"
-                {...register(field.name, validationRules)}
-              />
+              <input type="checkbox" {...register(field.name, validationRules)} />
             )}
 
             {errors[field.name] && (
