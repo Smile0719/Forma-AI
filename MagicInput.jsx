@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-export const MagicInput = ({ schemaId, onExtractionComplete }) => {
+export const MagicInput = ({ schemaId, apiBaseUrl, onExtractionComplete }) => {
   const [narrative, setNarrative] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState('');
@@ -12,15 +12,15 @@ export const MagicInput = ({ schemaId, onExtractionComplete }) => {
     setError('');
 
     try {
-      const response = await fetch('http://localhost:5000/api/ai/extract', {
+      const response = await fetch(`${apiBaseUrl}/api/ai/extract`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ schemaId, narrative })
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
 
-      if (!data.success) {
+      if (!response.ok || !data.success) {
         throw new Error(data.error || 'Failed to process narrative.');
       }
 
@@ -47,13 +47,20 @@ export const MagicInput = ({ schemaId, onExtractionComplete }) => {
       </p>
 
       <textarea
+        id="magic-narrative"
         rows={4}
         value={narrative}
         disabled={isProcessing}
         onChange={(e) => setNarrative(e.target.value)}
         placeholder="e.g., I hit a deer on I-95 yesterday in my Honda, and the windshield shattered."
         className="magic-textarea"
+        aria-describedby="magic-help"
+        maxLength={800}
       />
+      <div className="magic-meta">
+        <span id="magic-help">Describe the incident in your own words.</span>
+        <span>{narrative.length}/800</span>
+      </div>
 
       <button
         type="button"
