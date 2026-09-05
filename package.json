@@ -5,15 +5,19 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "server": "node server.cjs",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
-    "vite": "latest",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "mongoose": "^9.9.5",
     "react": "latest",
     "react-dom": "latest",
-    "react-hook-form": "latest"
-  },
-  "devDependencies": {}
+    "react-hook-form": "latest",
+    "vite": "latest"
+  }
 }
