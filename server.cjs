@@ -4,12 +4,17 @@ const cors = require('cors');
 require('dotenv').config();
 
 const DynamicForm = require('./models.cjs');
+const { extractFormData } = require('./llmService.cjs');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(express.json());
 app.use(cors());
+
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', database: mongoose.connection.readyState === 1 ? 'connected' : 'connecting' });
+});
 
 app.get('/api/schemas/:id', async (req, res) => {
   try {
@@ -63,29 +68,25 @@ app.post('/api/schemas/seed', async (req, res) => {
 });
 
 app.post('/api/ai/extract', async (req, res) => {
-  const { schemaId, narrative } = req.body || {};
+  const { schemaId, narrative } = req.body;
 
-  if (!schemaId || !narrative || !narrative.trim()) {
-    return res.status(400).json({
-      success: false,
-      error: 'A valid schemaId and narrative are required.'
-    });
+  if (!schemaId || typeof narrative !== 'string' || !narrative.trim()) {
+    return res.status(400).json({ error: 'A schema ID and narrative are required.' });
+  }
+
+  if (!process.env.OPENAI_API_KEY) {
+    return res.status(503).json({ error: 'AI extraction is not configured. Add OPENAI_API_KEY to your environment.' });
   }
 
   try {
     const schema = await DynamicForm.findById(schemaId);
+    if (!schema) return res.status(404).json({ error: 'Schema not found.' });
 
-    if (!schema) {
-      return res.status(404).json({ success: false, error: 'Schema not found.' });
-    }
-
-    const { extractFormData } = await import('./llmService.js');
-    const extractedData = await extractFormData(narrative, schema);
-
-    return res.json({ success: true, extractedData });
+    const extractedData = await extractFormData(narrative.trim(), schema);
+    res.json({ success: true, extractedData });
   } catch (err) {
-    console.error('AI extraction route error:', err);
-    return res.status(500).json({ success: false, error: err.message || 'AI extraction failed.' });
+    console.error('AI extraction error:', err.message);
+    res.status(500).json({ error: 'The narrative could not be processed right now.' });
   }
 });
 
