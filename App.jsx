@@ -17,6 +17,12 @@ export default function App() {
   const [showAdmin, setShowAdmin] = useState(false);
   const [uploadedText, setUploadedText] = useState('');
   const [undoValues, setUndoValues] = useState(null);
+  const [theme, setTheme] = useState(() => window.localStorage.getItem('forma-ai-theme') || 'day');
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    window.localStorage.setItem('forma-ai-theme', theme);
+  }, [theme]);
 
   const {
     register,
@@ -164,7 +170,7 @@ export default function App() {
   }
 
   if (showAdmin && schema) {
-    return <AdminDashboard schema={schema} apiBaseUrl={API_BASE_URL} onSaved={setSchema} onClose={() => setShowAdmin(false)} />;
+    return <AdminDashboard schema={schema} apiBaseUrl={API_BASE_URL} theme={theme} onThemeToggle={() => setTheme(theme === 'day' ? 'night' : 'day')} onSaved={setSchema} onClose={() => setShowAdmin(false)} />;
   }
 
   return (
@@ -173,7 +179,13 @@ export default function App() {
         <p className="eyebrow">Adaptive intake workspace</p>
         <h1>Forma AI Engine</h1>
         <p className="app-intro">Turn a quick description into a complete, validated form.</p>
-        <button type="button" className="text-button admin-toggle" onClick={() => setShowAdmin(true)}>Open admin builder</button>
+        <div className="app-header-actions">
+          <button type="button" className="theme-toggle" onClick={() => setTheme(theme === 'day' ? 'night' : 'day')} aria-label={`Switch to ${theme === 'day' ? 'night' : 'day'} mode`}>
+            <span aria-hidden="true">{theme === 'day' ? '☾' : '☀'}</span>
+            {theme === 'day' ? 'Night mode' : 'Day mode'}
+          </button>
+          <button type="button" className="text-button admin-toggle" onClick={() => setShowAdmin(true)}>Open admin builder</button>
+        </div>
       </header>
 
       {schemaId && (

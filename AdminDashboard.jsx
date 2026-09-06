@@ -63,7 +63,7 @@ function SortableField({ field, fields, onChange, onRemove }) {
   );
 }
 
-export default function AdminDashboard({ schema, apiBaseUrl, onSaved, onClose }) {
+export default function AdminDashboard({ schema, apiBaseUrl, theme, onThemeToggle, onSaved, onClose }) {
   const [draft, setDraft] = useState({ title: '', description: '', fields: [] });
   const [revisions, setRevisions] = useState([]);
   const [status, setStatus] = useState('');
@@ -97,7 +97,7 @@ export default function AdminDashboard({ schema, apiBaseUrl, onSaved, onClose })
   const restore = (revision) => setDraft(revision.snapshot);
 
   return <main className="admin-dashboard">
-    <div className="admin-header"><div><p className="eyebrow">Administrator mode</p><h1>Form Builder</h1><p>Arrange questions, validation, and branching without editing JSON.</p></div><button type="button" className="text-button" onClick={onClose}>Back to form</button></div>
+    <div className="admin-header"><div><p className="eyebrow">Administrator mode</p><h1>Form Builder</h1><p>Arrange questions, validation, and branching without editing JSON.</p></div><div className="admin-header-actions"><button type="button" className="theme-toggle" onClick={onThemeToggle} aria-label={`Switch to ${theme === 'day' ? 'night' : 'day'} mode`}><span aria-hidden="true">{theme === 'day' ? '☾' : '☀'}</span>{theme === 'day' ? 'Night mode' : 'Day mode'}</button><button type="button" className="text-button" onClick={onClose}>Back to form</button></div></div>
     <section className="builder-panel">
       <label>Form title<input value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>
       <label>Form description<textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></label>

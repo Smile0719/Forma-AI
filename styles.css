@@ -14,6 +14,22 @@
   --shadow: 0 22px 55px rgba(34, 55, 43, 0.1);
 }
 
+:root[data-theme="night"] {
+  --ink: #edf4ef;
+  --muted: #aabbb0;
+  --subtle: #819389;
+  --line: #34483e;
+  --paper: #1d2a25;
+  --canvas: #101815;
+  --accent: #ff8058;
+  --accent-dark: #ff9a78;
+  --accent-soft: #3b2822;
+  --green: #73c99b;
+  --green-soft: #20382c;
+  --focus: #f2c45d;
+  --shadow: 0 22px 55px rgba(0, 0, 0, 0.28);
+}
+
 * { box-sizing: border-box; }
 
 html { min-width: 320px; }
@@ -27,6 +43,10 @@ body {
   font-family: "DM Sans", "Segoe UI", sans-serif;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
+}
+
+body, .magic-panel, .dynamic-form, .state-panel, .builder-panel, .revision-panel, .builder-field {
+  transition: background-color 0.25s ease, color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
 }
 
 button, input, select, textarea { font: inherit; }
@@ -89,6 +109,21 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   font-size: 16px;
   line-height: 1.6;
 }
+.app-header-actions, .admin-header-actions { display: flex; align-items: center; gap: 16px; margin-top: 18px; }
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+.theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
+.theme-toggle span { font-size: 17px; line-height: 1; }
 
 .magic-panel, .dynamic-form, .state-panel {
   background: var(--paper);
@@ -333,6 +368,7 @@ textarea::placeholder, input::placeholder { color: #9aa5a0; }
 .builder-panel > label { display: grid; gap: 7px; margin-bottom: 18px; color: var(--muted); font-size: 12px; font-weight: 800; }
 .builder-panel textarea, .builder-field textarea { min-height: 80px; width: 100%; padding: 10px; border: 1px solid var(--line); resize: vertical; }
 .builder-field { margin-top: 16px; padding: 18px; border: 1px solid var(--line); background: #fbfcfa; }
+:root[data-theme="night"] .builder-field { background: #17231f; }
 .builder-field-header { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; }
 .builder-field-header strong { flex: 1; }
 .drag-handle, .remove-field { border: 0; background: transparent; cursor: pointer; }
@@ -364,6 +400,7 @@ textarea::placeholder, input::placeholder { color: #9aa5a0; }
   .magic-controls label { grid-column: 1 / -1; }
   .admin-dashboard { width: min(calc(100% - 24px), 900px); padding-top: 40px; }
   .admin-header, .builder-actions, .revision-row { display: grid; }
+  .app-header-actions, .admin-header-actions { align-items: flex-start; flex-direction: column; gap: 10px; }
   .builder-panel, .revision-panel { padding: 20px; }
   .builder-grid { grid-template-columns: 1fr; }
 }
