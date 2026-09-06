@@ -82,8 +82,12 @@ app.post('/api/ai/extract', async (req, res) => {
     const schema = await DynamicForm.findById(schemaId);
     if (!schema) return res.status(404).json({ error: 'Schema not found.' });
 
-    const extractedData = await extractFormData(narrative.trim(), schema);
-    res.json({ success: true, extractedData });
+    const extraction = await extractFormData(narrative.trim(), schema);
+    res.json({
+      success: true,
+      extractedData: extraction.values,
+      confidence: extraction.confidence
+    });
   } catch (err) {
     console.error('AI extraction error:', err.message);
     res.status(500).json({ error: 'The narrative could not be processed right now.' });

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 
+h
 export const MagicInput = ({ schemaId, apiBaseUrl, onExtractionComplete }) => {
   const [narrative, setNarrative] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -24,8 +25,7 @@ export const MagicInput = ({ schemaId, apiBaseUrl, onExtractionComplete }) => {
         throw new Error(data.error || 'Failed to process narrative.');
       }
 
-      // Pass extracted JSON values up to parent component to hydrate form state
-      onExtractionComplete(data.extractedData);
+      onExtractionComplete(data.extractedData, data.confidence || {});
     } catch (err) {
       setError(err.message);
     } finally {
@@ -71,9 +71,8 @@ export const MagicInput = ({ schemaId, apiBaseUrl, onExtractionComplete }) => {
         {isProcessing ? 'AI Processing...' : 'Auto-Fill Form'}
       </button>
 
-      {error && <p className="magic-error">{error}</p>}
+      {error && <p className="magic-error" role="alert">{error}</p>}
 
-      {/* Loading Skeleton UI */}
       {isProcessing && (
         <div className="loading-skeleton" aria-label="Processing">
           <div />
