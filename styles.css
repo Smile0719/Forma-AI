@@ -203,6 +203,15 @@ textarea::placeholder, input::placeholder { color: #9aa5a0; }
 .form-heading p { margin: 0; }
 .form-field { margin-bottom: 21px; }
 .form-field label { display: block; margin-bottom: 8px; font-size: 13px; font-weight: 800; }
+.field-label-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.confidence-score { color: var(--green); font-size: 11px; font-weight: 800; white-space: nowrap; }
+.confidence-warning { margin: -2px 0 8px; color: #9a6a00; font-size: 12px; line-height: 1.4; }
+.confidence-medium { padding: 10px 10px 10px 12px; border-left: 3px solid #e8b84b; background: #fffaf0; }
+.confidence-low { padding: 10px 10px 10px 12px; border-left: 3px solid #e46a35; background: #fff3ec; }
+.confidence-medium input, .confidence-medium select { border-color: #e8b84b; background: #fffaf0; }
+.confidence-low input, .confidence-low select { border-color: #e46a35; background: #fff3ec; }
+.confidence-medium .confidence-score { color: #9a6a00; }
+.confidence-low .confidence-score { color: #b7382c; }
 .field-checkbox { display: flex; align-items: center; gap: 10px; }
 .field-checkbox label { order: 2; margin: 0; }
 .field-checkbox input { order: 1; width: 18px; min-height: 18px; accent-color: var(--accent); }

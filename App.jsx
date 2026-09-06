@@ -11,6 +11,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [confidenceScores, setConfidenceScores] = useState({});
 
   const {
     register,
@@ -47,10 +48,11 @@ export default function App() {
   }, []);
 
   // Hydrate extracted AI data into React Hook Form state
-  const handleExtractionComplete = (extractedData) => {
+  const handleExtractionComplete = (extractedData, confidence = {}) => {
     Object.keys(extractedData).forEach((key) => {
       setValue(key, extractedData[key], { shouldValidate: true, shouldDirty: true });
     });
+    setConfidenceScores(confidence);
   };
 
   const onSubmit = (data) => {
@@ -134,11 +136,27 @@ export default function App() {
               };
             }
 
+            const confidence = confidenceScores[field.name];
+            const confidenceLevel = confidence === undefined
+              ? ''
+              : confidence < 40 ? 'low' : confidence < 70 ? 'medium' : 'high';
+
             return (
-              <div key={field.name} className={`form-field field-${field.type}`}>
-                <label htmlFor={field.name}>
-                  {field.label}
-                </label>
+              <div key={field.name} className={`form-field field-${field.type} ${confidenceLevel ? `confidence-${confidenceLevel}` : ''}`}>
+                <div className="field-label-row">
+                  <label htmlFor={field.name}>{field.label}</label>
+                  {confidence !== undefined && (
+                    <span className="confidence-score" aria-label={`${confidence}% confidence`}>
+                      {confidence}% confidence
+                    </span>
+                  )}
+                </div>
+
+                {confidence !== undefined && confidence < 70 && (
+                  <p className="confidence-warning" role="status">
+                    Please verify this AI-filled value.
+                  </p>
+                )}
 
                 {field.type === 'text' && (
                   <input
