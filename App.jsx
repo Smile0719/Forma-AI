@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { MagicInput } from './MagicInput';
 import './styles.css';
@@ -18,11 +18,31 @@ export default function App() {
     handleSubmit,
     setValue,
     watch,
+    reset,
     formState: { errors }
   } = useForm({ mode: 'onChange', shouldUnregister: true });
 
   // Watch form inputs in real time to evaluate conditional showIf expressions
   const formValues = watch();
+  const serializedFormValues = JSON.stringify(formValues);
+  const [draftSavedAt, setDraftSavedAt] = useState(null);
+  const [hasDraft, setHasDraft] = useState(false);
+
+  const draftKey = useMemo(
+    () => schema ? `forma-ai-draft-${schema.title}-${schema.version || 1}` : '',
+    [schema]
+  );
+
+  const visibleFields = schema?.fields.filter((field) => (
+    !field.showIf || formValues[field.showIf.field] === field.showIf.equals
+  )) || [];
+  const completedFields = visibleFields.filter((field) => {
+    const value = formValues[field.name];
+    return field.type === 'checkbox' ? value === true : value !== undefined && value !== '';
+  }).length;
+  const completionPercent = visibleFields.length
+    ? Math.round((completedFields / visibleFields.length) * 100)
+    : 0;
 
   // Load or seed a default schema on initial load
   useEffect(() => {
@@ -47,6 +67,31 @@ export default function App() {
     fetchOrCreateSchema();
   }, []);
 
+  useEffect(() => {
+    if (!draftKey) return;
+
+    const savedDraft = window.localStorage.getItem(draftKey);
+    if (!savedDraft) return;
+
+    try {
+      const parsedDraft = JSON.parse(savedDraft);
+      reset(parsedDraft.values || {});
+      setDraftSavedAt(parsedDraft.savedAt || null);
+      setHasDraft(true);
+    } catch (err) {
+      console.error('Saved draft could not be restored:', err);
+      window.localStorage.removeItem(draftKey);
+    }
+  }, [draftKey, reset]);
+
+  useEffect(() => {
+    if (!draftKey || !schema || !Object.keys(formValues).length) return;
+
+    const savedAt = new Date().toISOString();
+    window.localStorage.setItem(draftKey, JSON.stringify({ values: JSON.parse(serializedFormValues), savedAt }));
+    setDraftSavedAt(savedAt);
+  }, [draftKey, schema, serializedFormValues]);
+
   // Hydrate extracted AI data into React Hook Form state
   const handleExtractionComplete = (extractedData, confidence = {}) => {
     Object.keys(extractedData).forEach((key) => {
@@ -58,6 +103,15 @@ export default function App() {
   const onSubmit = (data) => {
     console.log('Final Form Submission:', data);
     setSubmitted(true);
+  };
+
+  const clearDraft = () => {
+    reset({});
+    setConfidenceScores({});
+    setSubmitted(false);
+    setHasDraft(false);
+    setDraftSavedAt(null);
+    if (draftKey) window.localStorage.removeItem(draftKey);
   };
 
   if (loading) {
@@ -94,7 +148,7 @@ export default function App() {
         <h1>Forma AI Engine</h1>
         <p className="app-intro">Turn a quick description into a complete, validated form.</p>
       </header>
-      
+
       {schemaId && (
         <MagicInput
           schemaId={schemaId}
@@ -105,6 +159,23 @@ export default function App() {
 
       {schema && (
         <form onSubmit={handleSubmit(onSubmit)} className="dynamic-form">
+          <div className="form-toolbar">
+            <div>
+              <strong>{completionPercent}% complete</strong>
+              <span>{completedFields} of {visibleFields.length} fields filled</span>
+            </div>
+            <button type="button" className="text-button" onClick={clearDraft}>
+              Start over
+            </button>
+          </div>
+          <div className="progress-track" aria-label={`${completionPercent}% complete`}>
+            <span style={{ width: `${completionPercent}%` }} />
+          </div>
+          {hasDraft && draftSavedAt && (
+            <p className="draft-status" role="status">
+              Draft restored. Saved {new Date(draftSavedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.
+            </p>
+          )}
           <div className="form-heading">
             <span className="form-step">01 / Details</span>
             <h2>{schema.title}</h2>

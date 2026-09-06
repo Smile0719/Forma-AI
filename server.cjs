@@ -19,10 +19,14 @@ app.get('/api/health', (req, res) => {
 app.get('/api/schemas/:id', async (req, res) => {
   try {
     const schema = await DynamicForm.findById(req.params.id);
-    if (!schema) return res.status(404).json({ message: 'Schema not found' });
-    res.json(schema);
+
+    if (!schema) {
+      return res.status(404).json({ message: 'Schema not found' });
+    }
+
+    return res.json(schema);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -57,9 +61,9 @@ app.post('/api/schemas/seed', async (req, res) => {
       ]
     });
 
-    res.status(201).json(created);
+    return res.status(201).json(created);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 

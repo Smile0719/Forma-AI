@@ -25,8 +25,9 @@ const extractFormData = async (userStory, formSchema) => {
   }));
 
   const prompt = new PromptTemplate({
-    template: `You are an expert dynamic data extraction engine.
-Analyze the user's natural language narrative and extract matching field values for the form.
+    template: `    You are an expert multilingual dynamic data extraction engine.
+    Analyze the user's narrative, regardless of language, and extract matching field values for the form.
+    Translate meaning internally when needed, but always return the schema keys and select option values exactly as provided in English.
 
 FORM SCHEMA SPECIFICATION:
 {expectedFields}
@@ -66,9 +67,18 @@ USER NARRATIVE:
       throw new Error('The model returned an invalid extraction shape.');
     }
 
-    const allowedKeys = new Set(formSchema.fields.map((field) => field.name));
+    const allowedFields = new Map(formSchema.fields.map((field) => [field.name, field]));
     const values = Object.fromEntries(
-      Object.entries(rawValues).filter(([key]) => allowedKeys.has(key))
+      Object.entries(rawValues).filter(([key, value]) => {
+        const field = allowedFields.get(key);
+        if (!field || value === null || value === undefined) return false;
+        if (field.type === 'select') {
+          return field.options?.some((option) => option.value === value) || false;
+        }
+        if (field.type === 'checkbox') return typeof value === 'boolean';
+        if (field.type === 'number') return Number.isFinite(Number(value));
+        return typeof value === 'string' || typeof value === 'number';
+      })
     );
 
     return {
