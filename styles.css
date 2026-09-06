@@ -125,6 +125,32 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   line-height: 1.65;
 }
 .magic-copy { margin: 17px 0 12px; }
+.magic-controls {
+  display: grid;
+  grid-template-columns: auto minmax(130px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.magic-controls select { min-height: 38px; padding: 7px 9px; }
+.voice-button {
+  min-height: 38px;
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+.voice-button:hover, .voice-button--active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
 
 .magic-textarea, input, select {
   width: 100%;
@@ -191,6 +217,44 @@ textarea::placeholder, input::placeholder { color: #9aa5a0; }
 .dynamic-form {
   padding: 30px;
   animation: rise-in 0.55s 0.16s ease both;
+}
+.form-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.form-toolbar div { display: grid; gap: 3px; }
+.form-toolbar strong { color: var(--ink); font-size: 14px; }
+.text-button {
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-dark);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+.text-button:hover { text-decoration: underline; }
+.progress-track {
+  height: 6px;
+  margin-bottom: 12px;
+  overflow: hidden;
+  background: var(--line);
+}
+.progress-track span {
+  display: block;
+  height: 100%;
+  background: var(--green);
+  transition: width 0.25s ease;
+}
+.draft-status {
+  margin: 0 0 18px;
+  color: var(--green);
+  font-size: 12px;
 }
 .form-heading { padding-bottom: 23px; margin-bottom: 26px; border-bottom: 1px solid var(--line); }
 .form-heading h2 {
@@ -266,6 +330,8 @@ textarea::placeholder, input::placeholder { color: #9aa5a0; }
   .app-shell--centered { width: 100%; padding: 16px; }
   .magic-panel, .dynamic-form, .state-panel { padding: 20px; }
   .app-header h1 { font-size: 2.8rem; }
+  .magic-controls { grid-template-columns: 1fr 1fr; }
+  .magic-controls label { grid-column: 1 / -1; }
 }
 
 @media (prefers-reduced-motion: reduce) {
