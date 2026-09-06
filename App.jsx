@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { MagicInput } from './MagicInput';
+import AdminDashboard from './AdminDashboard';
+import DocumentUpload from './DocumentUpload';
 import './styles.css';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
@@ -12,6 +14,9 @@ export default function App() {
   const [loadError, setLoadError] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [confidenceScores, setConfidenceScores] = useState({});
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [uploadedText, setUploadedText] = useState('');
+  const [undoValues, setUndoValues] = useState(null);
 
   const {
     register,
@@ -92,12 +97,29 @@ export default function App() {
     setDraftSavedAt(savedAt);
   }, [draftKey, schema, serializedFormValues]);
 
+  useEffect(() => {
+    if (!schemaId || !Object.keys(formValues).length) return undefined;
+    const syncDraft = () => fetch(`${API_BASE_URL}/api/schemas/${schemaId}/draft`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values: formValues })
+    }).catch(() => {});
+    const timer = window.setInterval(syncDraft, 30000);
+    return () => window.clearInterval(timer);
+  }, [schemaId, serializedFormValues]);
+
   // Hydrate extracted AI data into React Hook Form state
   const handleExtractionComplete = (extractedData, confidence = {}) => {
+    setUndoValues(formValues);
     Object.keys(extractedData).forEach((key) => {
       setValue(key, extractedData[key], { shouldValidate: true, shouldDirty: true });
     });
     setConfidenceScores(confidence);
+  };
+
+  const undoExtraction = () => {
+    if (!undoValues) return;
+    reset(undoValues);
+    setUndoValues(null);
+    setConfidenceScores({});
   };
 
   const onSubmit = (data) => {
@@ -141,12 +163,17 @@ export default function App() {
     );
   }
 
+  if (showAdmin && schema) {
+    return <AdminDashboard schema={schema} apiBaseUrl={API_BASE_URL} onSaved={setSchema} onClose={() => setShowAdmin(false)} />;
+  }
+
   return (
     <main className="app-shell">
       <header className="app-header">
         <p className="eyebrow">Adaptive intake workspace</p>
         <h1>Forma AI Engine</h1>
         <p className="app-intro">Turn a quick description into a complete, validated form.</p>
+        <button type="button" className="text-button admin-toggle" onClick={() => setShowAdmin(true)}>Open admin builder</button>
       </header>
 
       {schemaId && (
@@ -154,8 +181,11 @@ export default function App() {
           schemaId={schemaId}
           apiBaseUrl={API_BASE_URL}
           onExtractionComplete={handleExtractionComplete}
+          prefillText={uploadedText}
         />
       )}
+
+      <DocumentUpload apiBaseUrl={API_BASE_URL} onTextExtracted={setUploadedText} />
 
       {schema && (
         <form onSubmit={handleSubmit(onSubmit)} className="dynamic-form">
@@ -167,6 +197,7 @@ export default function App() {
             <button type="button" className="text-button" onClick={clearDraft}>
               Start over
             </button>
+            {undoValues && <button type="button" className="text-button" onClick={undoExtraction}>Undo AI changes</button>}
           </div>
           <div className="progress-track" aria-label={`${completionPercent}% complete`}>
             <span style={{ width: `${completionPercent}%` }} />

@@ -320,6 +320,36 @@ textarea::placeholder, input::placeholder { color: #9aa5a0; }
 .state-panel h1 { margin-top: 16px; font-size: clamp(2rem, 7vw, 3.2rem); }
 .state-panel > p:last-of-type { margin: 14px 0 20px; }
 .secondary-button { padding: 11px 16px; background: var(--ink); color: #fff; }
+.admin-toggle { display: inline-block; margin-top: 18px; }
+.document-upload { display: grid; gap: 8px; margin: -8px 0 22px; padding: 14px 18px; border: 1px dashed var(--line); color: var(--muted); font-size: 12px; }
+.document-upload label { color: var(--ink); font-weight: 800; }
+.document-upload input { min-height: auto; padding: 7px; background: var(--paper); font-size: 12px; }
+.document-upload span { color: var(--green); }
+.admin-dashboard { width: min(calc(100% - 40px), 900px); margin: 0 auto; padding: 56px 0 80px; }
+.admin-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 28px; }
+.admin-header h1 { margin-top: 10px; font-family: "Space Grotesk", "Segoe UI", sans-serif; font-size: clamp(2.3rem, 6vw, 4rem); letter-spacing: -0.06em; }
+.admin-header > div > p:last-child { margin-top: 10px; color: var(--muted); }
+.builder-panel, .revision-panel { padding: 26px; background: var(--paper); border: 1px solid var(--line); box-shadow: var(--shadow); }
+.builder-panel > label { display: grid; gap: 7px; margin-bottom: 18px; color: var(--muted); font-size: 12px; font-weight: 800; }
+.builder-panel textarea, .builder-field textarea { min-height: 80px; width: 100%; padding: 10px; border: 1px solid var(--line); resize: vertical; }
+.builder-field { margin-top: 16px; padding: 18px; border: 1px solid var(--line); background: #fbfcfa; }
+.builder-field-header { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; }
+.builder-field-header strong { flex: 1; }
+.drag-handle, .remove-field { border: 0; background: transparent; cursor: pointer; }
+.drag-handle { color: var(--accent); font-size: 18px; cursor: grab; }
+.remove-field { color: var(--accent-dark); font-size: 11px; font-weight: 800; }
+.builder-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.builder-grid label, .builder-wide { display: grid; gap: 6px; color: var(--muted); font-size: 11px; font-weight: 800; }
+.builder-wide { margin-top: 14px; }
+.builder-settings { align-items: end; margin-top: 14px; }
+.builder-check { display: flex !important; align-items: center; gap: 8px; min-height: 46px; }
+.builder-check input { width: 18px; min-height: 18px; }
+.builder-actions { display: flex; justify-content: space-between; gap: 12px; margin-top: 22px; }
+.revision-panel { margin-top: 22px; }
+.revision-panel h2 { margin: 8px 0 16px; font-family: "Space Grotesk", "Segoe UI", sans-serif; font-size: 22px; }
+.revision-panel > p { color: var(--muted); font-size: 13px; }
+.revision-row { display: flex; justify-content: space-between; gap: 16px; width: 100%; padding: 13px 0; border: 0; border-top: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; text-align: left; font-size: 12px; }
+.revision-row span { color: var(--muted); }
 
 @keyframes rise-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -332,6 +362,10 @@ textarea::placeholder, input::placeholder { color: #9aa5a0; }
   .app-header h1 { font-size: 2.8rem; }
   .magic-controls { grid-template-columns: 1fr 1fr; }
   .magic-controls label { grid-column: 1 / -1; }
+  .admin-dashboard { width: min(calc(100% - 24px), 900px); padding-top: 40px; }
+  .admin-header, .builder-actions, .revision-row { display: grid; }
+  .builder-panel, .revision-panel { padding: 20px; }
+  .builder-grid { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

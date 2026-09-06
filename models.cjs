@@ -26,7 +26,13 @@ const DynamicFormSchema = new mongoose.Schema({
   title: { type: String, required: true },
   description: { type: String },
   version: { type: Number, default: 1 },
-  fields: [FieldSchema]
+  fields: [FieldSchema],
+  revisions: [{
+    version: Number,
+    savedAt: { type: Date, default: Date.now },
+    label: String,
+    snapshot: mongoose.Schema.Types.Mixed
+  }]
 }, { timestamps: true });
 
 module.exports = mongoose.model('DynamicForm', DynamicFormSchema);
