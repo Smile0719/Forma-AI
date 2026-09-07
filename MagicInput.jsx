@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
-export const MagicInput = ({ schemaId, apiBaseUrl, onExtractionComplete }) => {
+export const MagicInput = ({ schemaId, apiBaseUrl, onExtractionComplete, prefillText }) => {
   const [narrative, setNarrative] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState('');
@@ -9,6 +9,10 @@ export const MagicInput = ({ schemaId, apiBaseUrl, onExtractionComplete }) => {
   const [speechSupported] = useState(
     typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)
   );
+
+  useEffect(() => {
+    if (prefillText) setNarrative(prefillText.slice(0, 800));
+  }, [prefillText]);
 
   const toggleListening = () => {
     if (!speechSupported) {
