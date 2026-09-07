@@ -6,8 +6,12 @@ const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
 
-const DynamicForm = require('./models.cjs');
-const Draft = require('./drafts.cjs');
+const mockDB = require('./mockDB.cjs');
+
+let DynamicForm = require('./models.cjs');
+let Draft = require('./drafts.cjs');
+let isMongoConnected = false;
+
 const { extractFormData } = require('./llmService.cjs');
 
 const app = express();
@@ -25,12 +29,21 @@ app.use(express.json());
 app.use(cors());
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', database: mongoose.connection.readyState === 1 ? 'connected' : 'connecting' });
+  res.json({ 
+    status: 'ok', 
+    database: isMongoConnected ? 'connected' : 'using mock data',
+    frontend: 'ready'
+  });
 });
 
 app.get('/api/schemas/:id', async (req, res) => {
   try {
-    const schema = await DynamicForm.findById(req.params.id);
+    let schema;
+    if (isMongoConnected) {
+      schema = await DynamicForm.findById(req.params.id);
+    } else {
+      schema = await mockDB.findFormById(req.params.id);
+    }
 
     if (!schema) {
       return res.status(404).json({ message: 'Schema not found' });
@@ -44,41 +57,82 @@ app.get('/api/schemas/:id', async (req, res) => {
 
 app.put('/api/schemas/:id', async (req, res) => {
   try {
-    const current = await DynamicForm.findById(req.params.id);
+    let current;
+    if (isMongoConnected) {
+      current = await DynamicForm.findById(req.params.id);
+    } else {
+      current = await mockDB.findFormById(req.params.id);
+    }
+    
     if (!current) return res.status(404).json({ error: 'Schema not found.' });
 
     const nextVersion = (current.version || 1) + 1;
     const snapshot = { title: req.body.title, description: req.body.description, fields: req.body.fields };
+    if (!current.revisions) current.revisions = [];
     current.revisions.push({ version: nextVersion, label: req.body.revisionLabel || 'Admin update', snapshot });
     current.title = snapshot.title;
     current.description = snapshot.description;
     current.fields = snapshot.fields;
     current.version = nextVersion;
-    await current.save();
-    return res.json(current);
+    
+    let updated;
+    if (isMongoConnected) {
+      await current.save();
+      updated = current;
+    } else {
+      updated = await mockDB.updateForm(req.params.id, current);
+    }
+    return res.json(updated);
   } catch (err) {
     return res.status(400).json({ error: err.message });
   }
 });
 
 app.get('/api/schemas/:id/revisions', async (req, res) => {
-  const schema = await DynamicForm.findById(req.params.id).select('version revisions');
-  if (!schema) return res.status(404).json({ error: 'Schema not found.' });
-  return res.json({ currentVersion: schema.version, revisions: schema.revisions || [] });
+  try {
+    let schema;
+    if (isMongoConnected) {
+      schema = await DynamicForm.findById(req.params.id).select('version revisions');
+    } else {
+      schema = await mockDB.findFormById(req.params.id);
+    }
+    if (!schema) return res.status(404).json({ error: 'Schema not found.' });
+    return res.json({ currentVersion: schema.version, revisions: schema.revisions || [] });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/api/schemas/:id/draft', async (req, res) => {
-  const draft = await Draft.findOne({ schemaId: req.params.id });
-  return res.json(draft || { values: {}, savedAt: null });
+  try {
+    let draft;
+    if (isMongoConnected) {
+      draft = await Draft.findOne({ schemaId: req.params.id });
+    } else {
+      draft = await mockDB.findDraft(req.params.id);
+    }
+    return res.json(draft || { values: {}, savedAt: null });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 app.put('/api/schemas/:id/draft', async (req, res) => {
-  const draft = await Draft.findOneAndUpdate(
-    { schemaId: req.params.id },
-    { values: req.body.values || {}, savedAt: new Date() },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
-  );
-  return res.json(draft);
+  try {
+    let draft;
+    if (isMongoConnected) {
+      draft = await Draft.findOneAndUpdate(
+        { schemaId: req.params.id },
+        { values: req.body.values || {}, savedAt: new Date() },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+    } else {
+      draft = await mockDB.upsertDraft(req.params.id, req.body.values || {});
+    }
+    return res.json(draft);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 app.post('/api/documents/extract', upload.single('document'), async (req, res) => {
@@ -107,9 +161,11 @@ app.post('/api/documents/extract', upload.single('document'), async (req, res) =
 
 app.post('/api/schemas/seed', async (req, res) => {
   try {
-    const created = await DynamicForm.create({
+    const seedData = {
       title: 'Insurance Claim Intake',
       description: 'Enter your policy, contact, and incident details so the claim can be verified accurately.',
+      version: 1,
+      revisions: [],
       fields: [
         {
           name: 'policyNumber',
@@ -207,7 +263,14 @@ app.post('/api/schemas/seed', async (req, res) => {
           showIf: { field: 'policeReportFiled', equals: true }
         }
       ]
-    });
+    };
+
+    let created;
+    if (isMongoConnected) {
+      created = await DynamicForm.create(seedData);
+    } else {
+      created = await mockDB.createForm(seedData);
+    }
 
     return res.status(201).json(created);
   } catch (err) {
@@ -242,13 +305,25 @@ app.post('/api/ai/extract', async (req, res) => {
   }
 });
 
+// Start server regardless of MongoDB connection for development
+app.listen(PORT, () => {
+  console.log(`✓ Server listening on port ${PORT}`);
+  console.log(`✓ Frontend: http://localhost:5175/`);
+  console.log(`✓ API: http://localhost:${PORT}/`);
+});
+
+// Try to connect to MongoDB in the background
 mongoose
-  .connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/forma_ai')
+  .connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/forma_ai', {
+    connectTimeoutMS: 3000,
+    socketTimeoutMS: 3000
+  })
   .then(() => {
-    console.log('Connected to MongoDB');
-    app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
+    console.log('✓ Connected to MongoDB');
+    isMongoConnected = true;
   })
   .catch((err) => {
-    console.error('MongoDB connection error:', err.message);
-    process.exitCode = 1;
+    console.log('ℹ MongoDB unavailable - using in-memory mock database');
+    console.log('  Database features will persist only during this session');
+    isMongoConnected = false;
   });
