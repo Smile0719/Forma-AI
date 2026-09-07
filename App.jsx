@@ -6,6 +6,32 @@ import DocumentUpload from './DocumentUpload';
 import './styles.css';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const fallbackSchema = {
+  _id: 'offline-preview',
+  title: 'Insurance Claim Intake',
+  description: 'Offline preview mode. Start the backend to enable AI extraction.',
+  version: 1,
+  fields: [
+    {
+      name: 'incidentType',
+      label: 'What type of incident occurred?',
+      type: 'select',
+      options: [
+        { label: 'Vehicle Collision', value: 'collision' },
+        { label: 'Property Damage', value: 'property' }
+      ],
+      validation: { required: true }
+    },
+    {
+      name: 'vehicleMake',
+      label: 'Vehicle Make',
+      type: 'text',
+      validation: { required: true },
+      showIf: { field: 'incidentType', equals: 'collision' }
+    },
+    { name: 'hasInjuries', label: 'Were there any injuries?', type: 'checkbox' }
+  ]
+};
 
 export default function App() {
   const [schemaId, setSchemaId] = useState(null);
@@ -69,7 +95,8 @@ export default function App() {
         setSchema(seededData);
       } catch (err) {
         console.error('Failed to initialize schema:', err);
-        setLoadError('We could not connect to the form service. Check that the backend is running and try again.');
+        setSchema(fallbackSchema);
+        setLoadError('Backend unavailable. Offline preview is enabled; AI extraction needs the backend.');
       } finally {
         setLoading(false);
       }
@@ -77,6 +104,11 @@ export default function App() {
 
     fetchOrCreateSchema();
   }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    window.localStorage.setItem('forma-ai-theme', theme);
+  }, [theme]);
 
   useEffect(() => {
     if (!draftKey) return;
@@ -154,19 +186,7 @@ export default function App() {
   }
 
   if (loadError) {
-    return (
-      <main className="app-shell app-shell--centered">
-        <section className="state-panel" role="alert">
-          <span className="state-icon" aria-hidden="true">!</span>
-          <p className="eyebrow">Connection issue</p>
-          <h1>We could not load the form</h1>
-          <p>{loadError}</p>
-          <button type="button" className="secondary-button" onClick={() => window.location.reload()}>
-            Try again
-          </button>
-        </section>
-      </main>
-    );
+    // Render the offline preview below while the backend is unavailable.
   }
 
   if (showAdmin && schema) {
@@ -187,6 +207,19 @@ export default function App() {
           <button type="button" className="text-button admin-toggle" onClick={() => setShowAdmin(true)}>Open admin builder</button>
         </div>
       </header>
+
+      {loadError && (
+        <div className="connection-banner" role="status">
+          <span aria-hidden="true">!</span>
+          <div>
+            <strong>Offline preview</strong>
+            <p>{loadError}</p>
+          </div>
+          <button type="button" className="text-button" onClick={() => window.location.reload()}>
+            Retry
+          </button>
+        </div>
+      )}
 
       {schemaId && (
         <MagicInput
