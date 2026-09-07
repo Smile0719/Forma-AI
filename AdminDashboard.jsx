@@ -57,7 +57,7 @@ const SortableField = ({ field, index, fields, onChange, onRemove }) => {
   );
 };
 
-export default function AdminDashboard({ schema, apiBaseUrl, onClose, onSaved }) {
+export default function AdminDashboard({ schema, apiBaseUrl, authToken, onClose, onSaved }) {
   const [title, setTitle] = useState(schema.title);
   const [description, setDescription] = useState(schema.description || '');
   const [fields, setFields] = useState(schema.fields.map((field) => ({ ...field, validation: { ...field.validation } })));
@@ -71,8 +71,9 @@ export default function AdminDashboard({ schema, apiBaseUrl, onClose, onSaved })
     if (!over || active.id === over.id) return;
     setFields((current) => arrayMove(current, current.findIndex((field) => field.name === active.id), current.findIndex((field) => field.name === over.id)));
   };
+  const authHeaders = { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) };
   const save = async () => {
-    const response = await fetch(`${apiBaseUrl}/api/schemas/${schema._id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, description, fields }) });
+    const response = await fetch(`${apiBaseUrl}/api/schemas/${schema._id}`, { method: 'PUT', headers: authHeaders, body: JSON.stringify({ title, description, fields }) });
     const data = await response.json();
     if (!response.ok) return setMessage(data.error || 'Could not save form.');
     setMessage(`Saved version ${data.version}.`);
@@ -83,7 +84,7 @@ export default function AdminDashboard({ schema, apiBaseUrl, onClose, onSaved })
     setRevisions(await response.json());
   };
   const restore = async (revisionId) => {
-    const response = await fetch(`${apiBaseUrl}/api/schemas/${schema._id}/restore/${revisionId}`, { method: 'POST' });
+    const response = await fetch(`${apiBaseUrl}/api/schemas/${schema._id}/restore/${revisionId}`, { method: 'POST', headers: authHeaders });
     const data = await response.json();
     if (response.ok) { setTitle(data.title); setDescription(data.description || ''); setFields(data.fields); onSaved(data); setMessage(`Restored version ${data.version}.`); }
   };

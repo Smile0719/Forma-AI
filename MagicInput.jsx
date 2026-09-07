@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 
-export const MagicInput = ({ schemaId, apiBaseUrl, onExtractionComplete }) => {
+export const MagicInput = ({ schemaId, apiBaseUrl, authFetch, onProvider, onExtractionComplete }) => {
   const [narrative, setNarrative] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState('');
@@ -8,6 +8,10 @@ export const MagicInput = ({ schemaId, apiBaseUrl, onExtractionComplete }) => {
   const [documentName, setDocumentName] = useState('');
   const [language, setLanguage] = useState('auto');
   const [isListening, setIsListening] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [transcriptionMode, setTranscriptionMode] = useState('');
+  const mediaRecorderRef = useRef(null);
+  const chunksRef = useRef([]);
   const [speechSupported] = useState(
     typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)
   );
@@ -47,6 +51,50 @@ export const MagicInput = ({ schemaId, apiBaseUrl, onExtractionComplete }) => {
     setIsListening(true);
   };
 
+  // Whisper-based recording: capture audio, transcribe server-side with OpenAI Whisper.
+  const toggleRecording = async () => {
+    if (isRecording) {
+      mediaRecorderRef.current?.stop();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      chunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data);
+      };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        setIsRecording(false);
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        if (blob.size < 1000) return setError('No speech was captured. Try again.');
+        setIsProcessing(true);
+        setError('');
+        try {
+          const body = new FormData();
+          body.append('audio', blob, 'narration.webm');
+          const response = await (authFetch || fetch)(`${apiBaseUrl}/api/ai/transcribe`, { method: 'POST', body });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || !data.success) throw new Error(data.error || 'Transcription failed.');
+          setTranscriptionMode('whisper');
+          setNarrative((current) => `${current} ${data.text}`.trim().slice(0, 800));
+        } catch (err) {
+          setError(err.message);
+        } finally {
+          setIsProcessing(false);
+        }
+      };
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      setIsRecording(true);
+      setTranscriptionMode('whisper');
+      setError('');
+    } catch (_err) {
+      setError('Microphone access was denied. You can still type your story.');
+    }
+  };
+
   const handleExtract = async () => {
     if (!narrative.trim()) return;
 
@@ -66,6 +114,7 @@ export const MagicInput = ({ schemaId, apiBaseUrl, onExtractionComplete }) => {
         throw new Error(data.error || 'Failed to process narrative.');
       }
 
+      onProvider?.(data.provider || '');
       onExtractionComplete(data.extractedData, data.confidence || {});
     } catch (err) {
       setError(err.message);
@@ -87,6 +136,7 @@ export const MagicInput = ({ schemaId, apiBaseUrl, onExtractionComplete }) => {
       const response = await fetch(`${apiBaseUrl}/api/ai/upload`, { method: 'POST', body });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Document parsing failed.');
+      onProvider?.(data.provider || '');
       onExtractionComplete(data.extractedData, data.confidence || {});
     } catch (err) {
       setError(err.message);
@@ -124,9 +174,13 @@ export const MagicInput = ({ schemaId, apiBaseUrl, onExtractionComplete }) => {
           <option value="de-DE">Deutsch</option>
           <option value="fr-FR">Français</option>
         </select>
-        <button type="button" className={`voice-button ${isListening ? 'voice-button--active' : ''}`} onClick={toggleListening}>
-          {isListening ? 'Stop listening' : 'Use microphone'}
+        <button type="button" className={`voice-button ${isListening ? 'voice-button--active' : ''}`} onClick={toggleListening} disabled={isRecording}>
+          {isListening ? 'Stop live mic' : 'Live mic (browser)'}
         </button>
+        <button type="button" className={`voice-button ${isRecording ? 'voice-button--active' : ''}`} onClick={toggleRecording} disabled={isListening || isProcessing}>
+          {isRecording ? 'Stop & transcribe (Whisper)' : 'Record for Whisper AI'}
+        </button>
+        {transcriptionMode && <span className="provider-badge">Speech: {transcriptionMode}</span>}
       </div>
       <textarea
         id="magic-narrative"

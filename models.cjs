@@ -47,6 +47,31 @@ const FormDraftSchema = new mongoose.Schema({
 
 FormDraftSchema.index({ schemaId: 1, clientId: 1 }, { unique: true });
 
+const UserSchema = new mongoose.Schema({
+  email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+  passwordHash: { type: String, required: true },
+  role: { type: String, enum: ['admin', 'reviewer', 'user'], default: 'user' }
+}, { timestamps: true });
+
+const AuditLogSchema = new mongoose.Schema({
+  schemaId: { type: mongoose.Schema.Types.ObjectId, ref: 'DynamicForm' },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  userEmail: { type: String },
+  clientId: { type: String },
+  action: { type: String, enum: ['fill', 'edit', 'submit', 'restore'], required: true },
+  fieldName: { type: String },
+  source: { type: String, enum: ['ai', 'human', 'system'], required: true },
+  confidence: { type: Number, min: 0, max: 100 },
+  meta: { type: mongoose.Schema.Types.Mixed }
+}, { timestamps: true });
+
+// Immutable log: block updates and deletes at the driver level
+AuditLogSchema.pre('findOneAndUpdate', function () {
+  throw new Error('Audit log entries are immutable.');
+});
+
 module.exports.DynamicForm = mongoose.model('DynamicForm', DynamicFormSchema);
 module.exports.FormRevision = mongoose.model('FormRevision', FormRevisionSchema);
 module.exports.FormDraft = mongoose.model('FormDraft', FormDraftSchema);
+module.exports.User = mongoose.model('User', UserSchema);
+module.exports.AuditLog = mongoose.model('AuditLog', AuditLogSchema);

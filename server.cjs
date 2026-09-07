@@ -7,14 +7,53 @@ const { PDFParse } = require('pdf-parse');
 const Tesseract = require('tesseract.js');
 require('dotenv').config();
 
-const { DynamicForm, FormRevision, FormDraft } = require('./models.cjs');
-const { extractFormData } = require('./llmService.cjs');
+const { DynamicForm, FormRevision, FormDraft, User, AuditLog } = require('./models.cjs');
+const { extractFormData, transcribeAudio, buildProviderChain } = require('./llmService.cjs');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+
+const JWT_SECRET = process.env.JWT_SECRET || 'forma-ai-dev-secret-change-me';
+
+const signToken = (user) =>
+  jwt.sign({ sub: user._id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
+
+// Attach req.user when a valid Bearer token is present; anonymous access continues
+const authOptional = (req, _res, next) => {
+  const header = req.headers.authorization || '';
+  if (header.startsWith('Bearer ')) {
+    try {
+      req.user = jwt.verify(header.slice(7), JWT_SECRET);
+    } catch (_err) {
+      req.authError = 'invalid-token';
+    }
+  }
+  next();
+};
+
+// Require authentication and (optionally) one of the given roles
+const requireRole = (...roles) => (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'Authentication required.' });
+  if (roles.length && !roles.includes(req.user.role)) {
+    return res.status(403).json({ error: `Requires role: ${roles.join(' or ')}.` });
+  }
+  next();
+};
+
+// Immutable audit entry writer — failures never block the main flow
+const writeAudit = async (entry) => {
+  try {
+    await AuditLog.create({ source: 'system', action: 'edit', ...entry });
+  } catch (err) {
+    console.warn('Audit write failed:', err.message);
+  }
+};
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(express.json());
 app.use(cors());
+app.use(authOptional);
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -23,6 +62,56 @@ const upload = multer({
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', database: mongoose.connection.readyState === 1 ? 'connected' : 'connecting' });
+});
+
+// ---------- Authentication (RBAC) ----------
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { email, password, role } = req.body;
+    if (!email || !password || password.length < 8) {
+      return res.status(400).json({ error: 'Email and a password of at least 8 characters are required.' });
+    }
+    const isFirstUser = (await User.countDocuments()) === 0;
+    const assignedRole = isFirstUser ? 'admin' : ['admin', 'reviewer', 'user'].includes(role) ? role : 'user';
+    if (!isFirstUser && (role === 'admin' || role === 'reviewer')) {
+      // Only admins can mint elevated accounts once one exists
+      if (!req.user || req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Only an admin can create admin or reviewer accounts.' });
+      }
+    }
+    const user = await User.create({
+      email,
+      passwordHash: await bcrypt.hash(password, 10),
+      role: assignedRole
+    });
+    return res.status(201).json({ token: signToken(user), user: { email: user.email, role: user.role } });
+  } catch (err) {
+    return res.status(err.code === 11000 ? 409 : 400).json({ error: 'Could not register that email.' });
+  }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const user = await User.findOne({ email: (email || '').toLowerCase() });
+    if (!user || !(await bcrypt.compare(password || '', user.passwordHash))) {
+      return res.status(401).json({ error: 'Invalid email or password.' });
+    }
+    return res.json({ token: signToken(user), user: { email: user.email, role: user.role } });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/auth/me', requireRole(), (req, res) => {
+  res.json({ email: req.user.email, role: req.user.role });
+});
+
+// ---------- Schemas ----------
+app.get('/api/schemas/latest', async (req, res) => {
+  const schema = await DynamicForm.findOne().sort({ createdAt: -1 });
+  if (!schema) return res.status(404).json({ message: 'No schema found' });
+  return res.json(schema);
 });
 
 app.get('/api/schemas/:id', async (req, res) => {
@@ -39,7 +128,7 @@ app.get('/api/schemas/:id', async (req, res) => {
   }
 });
 
-app.put('/api/schemas/:id', async (req, res) => {
+app.put('/api/schemas/:id', requireRole('admin'), async (req, res) => {
   try {
     const current = await DynamicForm.findById(req.params.id);
     if (!current) return res.status(404).json({ error: 'Schema not found.' });
@@ -62,7 +151,7 @@ app.get('/api/schemas/:id/revisions', async (req, res) => {
   return res.json(revisions);
 });
 
-app.post('/api/schemas/:id/restore/:revisionId', async (req, res) => {
+app.post('/api/schemas/:id/restore/:revisionId', requireRole('admin', 'reviewer'), async (req, res) => {
   try {
     const revision = await FormRevision.findOne({ _id: req.params.revisionId, schemaId: req.params.id });
     if (!revision) return res.status(404).json({ error: 'Revision not found.' });
@@ -107,7 +196,16 @@ const extractDocumentText = async (file) => {
   return result.data.text;
 };
 
-app.post('/api/schemas/seed', async (req, res) => {
+// Seeding is admin-only, except the very first schema on an empty database
+// so a fresh install can boot without manual setup.
+const allowSeed = async (req, res, next) => {
+  if (req.user?.role === 'admin') return next();
+  const count = await DynamicForm.countDocuments();
+  if (count === 0) return next();
+  return res.status(403).json({ error: 'Only an admin can seed additional schemas.' });
+};
+
+app.post('/api/schemas/seed', allowSeed, async (req, res) => {
   try {
     const created = await DynamicForm.create({
       title: 'Insurance Claim Intake',
@@ -281,8 +379,18 @@ app.post('/api/ai/extract', async (req, res) => {
     if (!schema) return res.status(404).json({ error: 'Schema not found.' });
 
     const extraction = await extractFormData(narrative.trim(), schema);
+    await writeAudit({
+      schemaId: schema._id,
+      userId: req.user?.sub,
+      userEmail: req.user?.email,
+      clientId: req.body.clientId,
+      action: 'fill',
+      source: 'ai',
+      meta: { provider: extraction.provider, fields: Object.keys(extraction.values) }
+    });
     res.json({
       success: true,
+      provider: extraction.provider,
       extractedData: extraction.values,
       confidence: extraction.confidence
     });
@@ -307,8 +415,17 @@ app.post('/api/ai/upload', upload.single('document'), async (req, res) => {
     const documentText = await extractDocumentText(req.file);
     if (!documentText.trim()) return res.status(422).json({ error: 'No readable text was found in this document.' });
     const extraction = await extractFormData(documentText.slice(0, 12000), schema);
+    await writeAudit({
+      schemaId: schema._id,
+      userId: req.user?.sub,
+      userEmail: req.user?.email,
+      action: 'fill',
+      source: 'ai',
+      meta: { provider: extraction.provider, document: req.file.originalname, fields: Object.keys(extraction.values) }
+    });
     return res.json({
       success: true,
+      provider: extraction.provider,
       fileName: req.file.originalname,
       extractedData: extraction.values,
       confidence: extraction.confidence
@@ -317,6 +434,58 @@ app.post('/api/ai/upload', upload.single('document'), async (req, res) => {
     console.error('Document extraction error:', err.message);
     return res.status(500).json({ error: 'The document could not be read right now.' });
   }
+});
+
+// ---------- Whisper audio transcription ----------
+app.post('/api/ai/transcribe', upload.single('audio'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'An audio file is required.' });
+  try {
+    const result = await transcribeAudio(req.file.buffer, req.file.originalname || 'audio.webm');
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('Transcription error:', err.message);
+    res.status(502).json({ error: 'Audio transcription failed. Use the microphone fallback or type your story.' });
+  }
+});
+
+// ---------- Submissions with AI/Human provenance audit ----------
+app.post('/api/submissions', async (req, res) => {
+  const { schemaId, values, provenance, clientId } = req.body;
+  if (!schemaId || !values || typeof values !== 'object') {
+    return res.status(400).json({ error: 'schemaId and values are required.' });
+  }
+  try {
+    const schema = await DynamicForm.findById(schemaId);
+    if (!schema) return res.status(404).json({ error: 'Schema not found.' });
+
+    // One immutable audit entry per field, tagged AI or Human
+    const sourceMap = provenance && typeof provenance === 'object' ? provenance : {};
+    const entries = Object.keys(values).map((fieldName) => ({
+      schemaId,
+      userId: req.user?.sub,
+      userEmail: req.user?.email,
+      clientId,
+      action: 'submit',
+      fieldName,
+      source: sourceMap[fieldName] === 'ai' ? 'ai' : 'human',
+      confidence: typeof sourceMap.confidence?.[fieldName] === 'number' ? sourceMap.confidence[fieldName] : undefined
+    }));
+    if (entries.length) await AuditLog.insertMany(entries);
+
+    res.status(201).json({ success: true, auditedFields: entries.length });
+  } catch (err) {
+    console.error('Submission error:', err.message);
+    res.status(500).json({ error: 'Submission could not be recorded.' });
+  }
+});
+
+// ---------- Audit log (admin & reviewer) ----------
+app.get('/api/audit', requireRole('admin', 'reviewer'), async (req, res) => {
+  const filter = {};
+  if (req.query.schemaId) filter.schemaId = req.query.schemaId;
+  if (req.query.source) filter.source = req.query.source;
+  const logs = await AuditLog.find(filter).sort({ createdAt: -1 }).limit(200);
+  res.json(logs);
 });
 
 mongoose
