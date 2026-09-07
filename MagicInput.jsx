@@ -1,18 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 
-export const MagicInput = ({ schemaId, apiBaseUrl, onExtractionComplete, prefillText }) => {
+export const MagicInput = ({ schemaId, apiBaseUrl, onExtractionComplete }) => {
   const [narrative, setNarrative] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
+  const [documentName, setDocumentName] = useState('');
   const [language, setLanguage] = useState('auto');
   const [isListening, setIsListening] = useState(false);
   const [speechSupported] = useState(
     typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)
   );
-
-  useEffect(() => {
-    if (prefillText) setNarrative(prefillText.slice(0, 800));
-  }, [prefillText]);
 
   const toggleListening = () => {
     if (!speechSupported) {
@@ -76,6 +74,28 @@ export const MagicInput = ({ schemaId, apiBaseUrl, onExtractionComplete, prefill
     }
   };
 
+  const handleDocumentUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setIsUploading(true);
+    setError('');
+    setDocumentName(file.name);
+    try {
+      const body = new FormData();
+      body.append('schemaId', schemaId);
+      body.append('document', file);
+      const response = await fetch(`${apiBaseUrl}/api/ai/upload`, { method: 'POST', body });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Document parsing failed.');
+      onExtractionComplete(data.extractedData, data.confidence || {});
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsUploading(false);
+      event.target.value = '';
+    }
+  };
+
   return (
     <section className="magic-panel">
       <div className="magic-heading">
@@ -132,6 +152,12 @@ export const MagicInput = ({ schemaId, apiBaseUrl, onExtractionComplete, prefill
       >
         {isProcessing ? 'AI Processing...' : 'Auto-Fill Form'}
       </button>
+
+      <label className="document-upload">
+        <span>{isUploading ? 'Reading document...' : 'Upload PDF or receipt image'}</span>
+        <input type="file" accept="application/pdf,image/*" disabled={isProcessing || isUploading} onChange={handleDocumentUpload} />
+      </label>
+      {documentName && !isUploading && <p className="magic-meta">Parsed: {documentName}</p>}
 
       {error && <p className="magic-error" role="alert">{error}</p>}
 

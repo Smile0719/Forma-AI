@@ -2,48 +2,32 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const multer = require('multer');
-const fs = require('fs');
 const path = require('path');
+const { PDFParse } = require('pdf-parse');
+const Tesseract = require('tesseract.js');
 require('dotenv').config();
 
-const mockDB = require('./mockDB.cjs');
-
-let DynamicForm = require('./models.cjs');
-let Draft = require('./drafts.cjs');
-let isMongoConnected = false;
-
+const { DynamicForm, FormRevision, FormDraft } = require('./models.cjs');
 const { extractFormData } = require('./llmService.cjs');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const upload = multer({
-  dest: path.join(__dirname, 'tmp-uploads'),
-  limits: { fileSize: 10 * 1024 * 1024 },
-  fileFilter: (req, file, callback) => {
-    const allowed = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'];
-    callback(null, allowed.includes(file.mimetype));
-  }
-});
 
 app.use(express.json());
 app.use(cors());
 
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }
+});
+
 app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    database: isMongoConnected ? 'connected' : 'using mock data',
-    frontend: 'ready'
-  });
+  res.json({ status: 'ok', database: mongoose.connection.readyState === 1 ? 'connected' : 'connecting' });
 });
 
 app.get('/api/schemas/:id', async (req, res) => {
   try {
-    let schema;
-    if (isMongoConnected) {
-      schema = await DynamicForm.findById(req.params.id);
-    } else {
-      schema = await mockDB.findFormById(req.params.id);
-    }
+    const schema = await DynamicForm.findById(req.params.id);
 
     if (!schema) {
       return res.status(404).json({ message: 'Schema not found' });
@@ -57,31 +41,16 @@ app.get('/api/schemas/:id', async (req, res) => {
 
 app.put('/api/schemas/:id', async (req, res) => {
   try {
-    let current;
-    if (isMongoConnected) {
-      current = await DynamicForm.findById(req.params.id);
-    } else {
-      current = await mockDB.findFormById(req.params.id);
-    }
-    
+    const current = await DynamicForm.findById(req.params.id);
     if (!current) return res.status(404).json({ error: 'Schema not found.' });
 
     const nextVersion = (current.version || 1) + 1;
-    const snapshot = { title: req.body.title, description: req.body.description, fields: req.body.fields };
-    if (!current.revisions) current.revisions = [];
-    current.revisions.push({ version: nextVersion, label: req.body.revisionLabel || 'Admin update', snapshot });
-    current.title = snapshot.title;
-    current.description = snapshot.description;
-    current.fields = snapshot.fields;
-    current.version = nextVersion;
-    
-    let updated;
-    if (isMongoConnected) {
-      await current.save();
-      updated = current;
-    } else {
-      updated = await mockDB.updateForm(req.params.id, current);
-    }
+    const updated = await DynamicForm.findByIdAndUpdate(
+      req.params.id,
+      { title: req.body.title, description: req.body.description, fields: req.body.fields, version: nextVersion },
+      { new: true, runValidators: true }
+    );
+    await FormRevision.create({ schemaId: updated._id, version: nextVersion, snapshot: updated.toObject() });
     return res.json(updated);
   } catch (err) {
     return res.status(400).json({ error: err.message });
@@ -89,83 +58,60 @@ app.put('/api/schemas/:id', async (req, res) => {
 });
 
 app.get('/api/schemas/:id/revisions', async (req, res) => {
+  const revisions = await FormRevision.find({ schemaId: req.params.id }).sort({ version: -1 }).limit(30);
+  return res.json(revisions);
+});
+
+app.post('/api/schemas/:id/restore/:revisionId', async (req, res) => {
   try {
-    let schema;
-    if (isMongoConnected) {
-      schema = await DynamicForm.findById(req.params.id).select('version revisions');
-    } else {
-      schema = await mockDB.findFormById(req.params.id);
-    }
-    if (!schema) return res.status(404).json({ error: 'Schema not found.' });
-    return res.json({ currentVersion: schema.version, revisions: schema.revisions || [] });
+    const revision = await FormRevision.findOne({ _id: req.params.revisionId, schemaId: req.params.id });
+    if (!revision) return res.status(404).json({ error: 'Revision not found.' });
+    const current = await DynamicForm.findById(req.params.id);
+    const nextVersion = (current.version || 1) + 1;
+    const restored = await DynamicForm.findByIdAndUpdate(req.params.id, {
+      title: revision.snapshot.title,
+      description: revision.snapshot.description,
+      fields: revision.snapshot.fields,
+      version: nextVersion
+    }, { new: true, runValidators: true });
+    await FormRevision.create({ schemaId: restored._id, version: nextVersion, snapshot: restored.toObject(), source: 'system' });
+    return res.json(restored);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return res.status(400).json({ error: err.message });
   }
 });
 
-app.get('/api/schemas/:id/draft', async (req, res) => {
-  try {
-    let draft;
-    if (isMongoConnected) {
-      draft = await Draft.findOne({ schemaId: req.params.id });
-    } else {
-      draft = await mockDB.findDraft(req.params.id);
-    }
-    return res.json(draft || { values: {}, savedAt: null });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
+app.post('/api/drafts', async (req, res) => {
+  const { schemaId, clientId, values } = req.body;
+  if (!schemaId || !clientId || !values || typeof values !== 'object') {
+    return res.status(400).json({ error: 'schemaId, clientId, and values are required.' });
   }
+  const draft = await FormDraft.findOneAndUpdate(
+    { schemaId, clientId },
+    { values, savedAt: new Date() },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+  return res.json({ savedAt: draft.savedAt });
 });
 
-app.put('/api/schemas/:id/draft', async (req, res) => {
-  try {
-    let draft;
-    if (isMongoConnected) {
-      draft = await Draft.findOneAndUpdate(
-        { schemaId: req.params.id },
-        { values: req.body.values || {}, savedAt: new Date() },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
-      );
-    } else {
-      draft = await mockDB.upsertDraft(req.params.id, req.body.values || {});
-    }
-    return res.json(draft);
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
+const extractDocumentText = async (file) => {
+  const extension = path.extname(file.originalname).toLowerCase();
+  if (extension === '.pdf' || file.mimetype === 'application/pdf') {
+    const parser = new PDFParse({ data: file.buffer });
+    const result = await parser.getText();
+    await parser.destroy();
+    return result.text;
   }
-});
 
-app.post('/api/documents/extract', upload.single('document'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'Upload a PDF or image document.' });
-
-  try {
-    let text = '';
-    if (req.file.mimetype === 'application/pdf') {
-      const pdfParse = require('pdf-parse');
-      const parsed = await pdfParse(fs.readFileSync(req.file.path));
-      text = parsed.text;
-    } else {
-      const { createWorker } = require('tesseract.js');
-      const worker = await createWorker('eng');
-      const result = await worker.recognize(req.file.path);
-      text = result.data.text;
-      await worker.terminate();
-    }
-    return res.json({ success: true, fileName: req.file.originalname, text: text.trim() });
-  } catch (err) {
-    return res.status(422).json({ error: 'The document could not be parsed.' });
-  } finally {
-    fs.promises.unlink(req.file.path).catch(() => {});
-  }
-});
+  const result = await Tesseract.recognize(file.buffer, 'eng');
+  return result.data.text;
+};
 
 app.post('/api/schemas/seed', async (req, res) => {
   try {
-    const seedData = {
+    const created = await DynamicForm.create({
       title: 'Insurance Claim Intake',
       description: 'Enter your policy, contact, and incident details so the claim can be verified accurately.',
-      version: 1,
-      revisions: [],
       fields: [
         {
           name: 'policyNumber',
@@ -178,7 +124,7 @@ app.post('/api/schemas/seed', async (req, res) => {
           name: 'policyholderName',
           label: 'Policyholder full name',
           type: 'text',
-          placeholder: 'Enter the name on the policy',
+          placeholder: 'Name shown on the insurance policy',
           validation: { required: true, minLength: 2 }
         },
         {
@@ -186,10 +132,7 @@ app.post('/api/schemas/seed', async (req, res) => {
           label: 'Contact email',
           type: 'text',
           placeholder: 'you@example.com',
-          validation: {
-            required: true,
-            pattern: '^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$'
-          }
+          validation: { required: true, pattern: '^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$' }
         },
         {
           name: 'contactPhone',
@@ -197,6 +140,13 @@ app.post('/api/schemas/seed', async (req, res) => {
           type: 'text',
           placeholder: 'e.g., +1 555 123 4567',
           validation: { required: true, minLength: 7 }
+        },
+        {
+          name: 'claimantAddress',
+          label: 'Claimant mailing address',
+          type: 'text',
+          placeholder: 'Street, city, state, and ZIP code',
+          validation: { required: true, minLength: 10 }
         },
         {
           name: 'incidentType',
@@ -212,8 +162,15 @@ app.post('/api/schemas/seed', async (req, res) => {
           name: 'incidentDate',
           label: 'Date of incident',
           type: 'text',
-          placeholder: 'e.g., 2026-09-07',
+          placeholder: 'YYYY-MM-DD',
           validation: { required: true, pattern: '^\\d{4}-\\d{2}-\\d{2}$' }
+        },
+        {
+          name: 'incidentTime',
+          label: 'Approximate time of incident',
+          type: 'text',
+          placeholder: 'e.g., 4:30 PM',
+          validation: { required: true }
         },
         {
           name: 'incidentLocation',
@@ -229,6 +186,21 @@ app.post('/api/schemas/seed', async (req, res) => {
           placeholder: 'e.g., Honda Accord',
           validation: { required: true },
           showIf: { field: 'incidentType', equals: 'collision' }
+        },
+        {
+          name: 'vehicleRegistration',
+          label: 'Vehicle registration or plate number',
+          type: 'text',
+          placeholder: 'e.g., ABC-1234',
+          validation: { required: true },
+          showIf: { field: 'incidentType', equals: 'collision' }
+        },
+        {
+          name: 'otherPartyDetails',
+          label: 'Other person or property involved',
+          type: 'text',
+          placeholder: 'Name, vehicle, property, or contact details',
+          validation: { required: true, minLength: 5 }
         },
         {
           name: 'damageDescription',
@@ -250,6 +222,14 @@ app.post('/api/schemas/seed', async (req, res) => {
           type: 'checkbox'
         },
         {
+          name: 'injuryDetails',
+          label: 'Describe the injuries and treatment received',
+          type: 'text',
+          placeholder: 'Include who was injured and whether medical care was needed',
+          validation: { required: true, minLength: 10 },
+          showIf: { field: 'hasInjuries', equals: true }
+        },
+        {
           name: 'policeReportFiled',
           label: 'Was a police report filed?',
           type: 'checkbox'
@@ -261,16 +241,23 @@ app.post('/api/schemas/seed', async (req, res) => {
           placeholder: 'Enter the report number',
           validation: { required: true },
           showIf: { field: 'policeReportFiled', equals: true }
+        },
+        {
+          name: 'witnessDetails',
+          label: 'Witness names and contact details',
+          type: 'text',
+          placeholder: 'Optional witness information',
+          validation: { maxLength: 500 }
+        },
+        {
+          name: 'additionalNotes',
+          label: 'Additional claim notes',
+          type: 'text',
+          placeholder: 'Anything else the insurance reviewer should know?',
+          validation: { maxLength: 1000 }
         }
       ]
-    };
-
-    let created;
-    if (isMongoConnected) {
-      created = await DynamicForm.create(seedData);
-    } else {
-      created = await mockDB.createForm(seedData);
-    }
+    });
 
     return res.status(201).json(created);
   } catch (err) {
@@ -305,25 +292,40 @@ app.post('/api/ai/extract', async (req, res) => {
   }
 });
 
-// Start server regardless of MongoDB connection for development
-app.listen(PORT, () => {
-  console.log(`✓ Server listening on port ${PORT}`);
-  console.log(`✓ Frontend: http://localhost:5175/`);
-  console.log(`✓ API: http://localhost:${PORT}/`);
+app.post('/api/ai/upload', upload.single('document'), async (req, res) => {
+  const { schemaId } = req.body;
+  if (!schemaId || !req.file) {
+    return res.status(400).json({ error: 'A schema ID and document are required.' });
+  }
+  if (!process.env.OPENAI_API_KEY) {
+    return res.status(503).json({ error: 'AI extraction is not configured. Add OPENAI_API_KEY to your environment.' });
+  }
+
+  try {
+    const schema = await DynamicForm.findById(schemaId);
+    if (!schema) return res.status(404).json({ error: 'Schema not found.' });
+    const documentText = await extractDocumentText(req.file);
+    if (!documentText.trim()) return res.status(422).json({ error: 'No readable text was found in this document.' });
+    const extraction = await extractFormData(documentText.slice(0, 12000), schema);
+    return res.json({
+      success: true,
+      fileName: req.file.originalname,
+      extractedData: extraction.values,
+      confidence: extraction.confidence
+    });
+  } catch (err) {
+    console.error('Document extraction error:', err.message);
+    return res.status(500).json({ error: 'The document could not be read right now.' });
+  }
 });
 
-// Try to connect to MongoDB in the background
 mongoose
-  .connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/forma_ai', {
-    connectTimeoutMS: 3000,
-    socketTimeoutMS: 3000
-  })
+  .connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/forma_ai')
   .then(() => {
-    console.log('✓ Connected to MongoDB');
-    isMongoConnected = true;
+    console.log('Connected to MongoDB');
+    app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
   })
   .catch((err) => {
-    console.log('ℹ MongoDB unavailable - using in-memory mock database');
-    console.log('  Database features will persist only during this session');
-    isMongoConnected = false;
+    console.error('MongoDB connection error:', err.message);
+    process.exitCode = 1;
   });

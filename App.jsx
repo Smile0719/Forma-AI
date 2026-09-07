@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { MagicInput } from './MagicInput';
 import AdminDashboard from './AdminDashboard';
-import DocumentUpload from './DocumentUpload';
 import './styles.css';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
@@ -15,14 +14,14 @@ export default function App() {
   const [submitted, setSubmitted] = useState(false);
   const [confidenceScores, setConfidenceScores] = useState({});
   const [showAdmin, setShowAdmin] = useState(false);
-  const [uploadedText, setUploadedText] = useState('');
   const [undoValues, setUndoValues] = useState(null);
-  const [theme, setTheme] = useState(() => window.localStorage.getItem('forma-ai-theme') || 'day');
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    window.localStorage.setItem('forma-ai-theme', theme);
-  }, [theme]);
+  const [clientId] = useState(() => {
+    const stored = window.localStorage.getItem('forma-ai-client-id');
+    if (stored) return stored;
+    const created = crypto.randomUUID();
+    window.localStorage.setItem('forma-ai-client-id', created);
+    return created;
+  });
 
   const {
     register,
@@ -105,12 +104,14 @@ export default function App() {
 
   useEffect(() => {
     if (!schemaId || !Object.keys(formValues).length) return undefined;
-    const syncDraft = () => fetch(`${API_BASE_URL}/api/schemas/${schemaId}/draft`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values: formValues })
-    }).catch(() => {});
-    const timer = window.setInterval(syncDraft, 30000);
-    return () => window.clearInterval(timer);
-  }, [schemaId, serializedFormValues]);
+    const syncDraft = () => fetch(`${API_BASE_URL}/api/drafts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ schemaId, clientId, values: formValues })
+    }).catch((err) => console.warn('Draft sync unavailable:', err.message));
+    const interval = window.setInterval(syncDraft, 10000);
+    return () => window.clearInterval(interval);
+  }, [API_BASE_URL, clientId, formValues, schemaId]);
 
   // Hydrate extracted AI data into React Hook Form state
   const handleExtractionComplete = (extractedData, confidence = {}) => {
@@ -119,13 +120,6 @@ export default function App() {
       setValue(key, extractedData[key], { shouldValidate: true, shouldDirty: true });
     });
     setConfidenceScores(confidence);
-  };
-
-  const undoExtraction = () => {
-    if (!undoValues) return;
-    reset(undoValues);
-    setUndoValues(null);
-    setConfidenceScores({});
   };
 
   const onSubmit = (data) => {
@@ -139,6 +133,7 @@ export default function App() {
     setSubmitted(false);
     setHasDraft(false);
     setDraftSavedAt(null);
+    setUndoValues(null);
     if (draftKey) window.localStorage.removeItem(draftKey);
   };
 
@@ -169,37 +164,35 @@ export default function App() {
     );
   }
 
-  if (showAdmin && schema) {
-    return <AdminDashboard schema={schema} apiBaseUrl={API_BASE_URL} theme={theme} onThemeToggle={() => setTheme(theme === 'day' ? 'night' : 'day')} onSaved={setSchema} onClose={() => setShowAdmin(false)} />;
-  }
-
   return (
     <main className="app-shell">
       <header className="app-header">
         <p className="eyebrow">Adaptive intake workspace</p>
         <h1>Forma AI Engine</h1>
         <p className="app-intro">Turn a quick description into a complete, validated form.</p>
-        <div className="app-header-actions">
-          <button type="button" className="theme-toggle" onClick={() => setTheme(theme === 'day' ? 'night' : 'day')} aria-label={`Switch to ${theme === 'day' ? 'night' : 'day'} mode`}>
-            <span aria-hidden="true">{theme === 'day' ? '☾' : '☀'}</span>
-            {theme === 'day' ? 'Night mode' : 'Day mode'}
-          </button>
-          <button type="button" className="text-button admin-toggle" onClick={() => setShowAdmin(true)}>Open admin builder</button>
-        </div>
+        <button type="button" className="admin-toggle" onClick={() => setShowAdmin((current) => !current)}>
+          {showAdmin ? 'Return to claim' : 'Open admin builder'}
+        </button>
       </header>
 
-      {schemaId && (
+      {showAdmin && schema && (
+        <AdminDashboard
+          schema={schema}
+          apiBaseUrl={API_BASE_URL}
+          onClose={() => setShowAdmin(false)}
+          onSaved={(updatedSchema) => { setSchema(updatedSchema); setSchemaId(updatedSchema._id); }}
+        />
+      )}
+
+      {!showAdmin && schemaId && (
         <MagicInput
           schemaId={schemaId}
           apiBaseUrl={API_BASE_URL}
           onExtractionComplete={handleExtractionComplete}
-          prefillText={uploadedText}
         />
       )}
 
-      <DocumentUpload apiBaseUrl={API_BASE_URL} onTextExtracted={setUploadedText} />
-
-      {schema && (
+      {!showAdmin && schema && (
         <form onSubmit={handleSubmit(onSubmit)} className="dynamic-form">
           <div className="form-toolbar">
             <div>
@@ -209,7 +202,9 @@ export default function App() {
             <button type="button" className="text-button" onClick={clearDraft}>
               Start over
             </button>
-            {undoValues && <button type="button" className="text-button" onClick={undoExtraction}>Undo AI changes</button>}
+            {undoValues && <button type="button" className="text-button" onClick={() => { reset(undoValues); setUndoValues(null); }}>
+              Undo AI fill
+            </button>}
           </div>
           <div className="progress-track" aria-label={`${completionPercent}% complete`}>
             <span style={{ width: `${completionPercent}%` }} />
