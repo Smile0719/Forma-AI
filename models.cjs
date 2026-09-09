@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const mockDb = require('./mockDB.cjs');
 
 const FieldSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -28,8 +29,6 @@ const DynamicFormSchema = new mongoose.Schema({
   version: { type: Number, default: 1 },
   fields: [FieldSchema]
 }, { timestamps: true });
-
-module.exports = mongoose.model('DynamicForm', DynamicFormSchema);
 
 const FormRevisionSchema = new mongoose.Schema({
   schemaId: { type: mongoose.Schema.Types.ObjectId, ref: 'DynamicForm', required: true },
@@ -65,13 +64,40 @@ const AuditLogSchema = new mongoose.Schema({
   meta: { type: mongoose.Schema.Types.Mixed }
 }, { timestamps: true });
 
-// Immutable log: block updates and deletes at the driver level
 AuditLogSchema.pre('findOneAndUpdate', function () {
   throw new Error('Audit log entries are immutable.');
 });
 
-module.exports.DynamicForm = mongoose.model('DynamicForm', DynamicFormSchema);
-module.exports.FormRevision = mongoose.model('FormRevision', FormRevisionSchema);
-module.exports.FormDraft = mongoose.model('FormDraft', FormDraftSchema);
-module.exports.User = mongoose.model('User', UserSchema);
-module.exports.AuditLog = mongoose.model('AuditLog', AuditLogSchema);
+const mongoModels = {
+  DynamicForm: mongoose.model('DynamicForm', DynamicFormSchema),
+  FormRevision: mongoose.model('FormRevision', FormRevisionSchema),
+  FormDraft: mongoose.model('FormDraft', FormDraftSchema),
+  User: mongoose.model('User', UserSchema),
+  AuditLog: mongoose.model('AuditLog', AuditLogSchema)
+};
+
+const createAdapter = (collectionName, model) => ({
+  create: async (doc) => (mongoose.connection.readyState === 1 ? model.create(doc) : mockDb.create(collectionName, doc)),
+  countDocuments: async (query = {}) => (mongoose.connection.readyState === 1 ? model.countDocuments(query) : mockDb.countDocuments(collectionName, query)),
+  findOne: (query = {}) => (mongoose.connection.readyState === 1 ? model.findOne(query) : mockDb.findOne(collectionName, query)),
+  find: (query = {}) => (mongoose.connection.readyState === 1 ? model.find(query) : mockDb.find(collectionName, query)),
+  findById: async (id) => (mongoose.connection.readyState === 1 ? model.findById(id) : mockDb.findById(collectionName, id)),
+  findByIdAndUpdate: async (id, update, options) => (mongoose.connection.readyState === 1 ? model.findByIdAndUpdate(id, update, options) : mockDb.findByIdAndUpdate(collectionName, id, update, options)),
+  findOneAndUpdate: async (query, update, options) => (mongoose.connection.readyState === 1 ? model.findOneAndUpdate(query, update, options) : mockDb.findOneAndUpdate(collectionName, query, update, options)),
+  insertMany: async (docs) => (mongoose.connection.readyState === 1 ? model.insertMany(docs) : mockDb.insertMany(collectionName, docs)),
+});
+
+const exportedModels = {
+  DynamicForm: createAdapter('dynamicforms', mongoModels.DynamicForm),
+  FormRevision: createAdapter('revisions', mongoModels.FormRevision),
+  FormDraft: createAdapter('drafts', mongoModels.FormDraft),
+  User: createAdapter('users', mongoModels.User),
+  AuditLog: createAdapter('auditlogs', mongoModels.AuditLog)
+};
+
+module.exports = exportedModels;
+module.exports.DynamicForm = exportedModels.DynamicForm;
+module.exports.FormRevision = exportedModels.FormRevision;
+module.exports.FormDraft = exportedModels.FormDraft;
+module.exports.User = exportedModels.User;
+module.exports.AuditLog = exportedModels.AuditLog;

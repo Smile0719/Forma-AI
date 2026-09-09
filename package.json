@@ -8,8 +8,8 @@
     "server": "node server.cjs",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "vitest run --pool=forks",
+    "test:watch": "vitest --pool=forks"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

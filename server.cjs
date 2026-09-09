@@ -488,13 +488,18 @@ app.get('/api/audit', requireRole('admin', 'reviewer'), async (req, res) => {
   res.json(logs);
 });
 
+const startServer = () => {
+  app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
+};
+
 mongoose
   .connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/forma_ai')
   .then(() => {
     console.log('Connected to MongoDB');
-    app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
+    startServer();
   })
   .catch((err) => {
     console.error('MongoDB connection error:', err.message);
-    process.exitCode = 1;
+    console.log('Starting backend in local mock database mode.');
+    startServer();
   });

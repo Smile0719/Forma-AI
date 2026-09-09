@@ -78,6 +78,114 @@ function AuthPanel({ user, apiBaseUrl, onAuthenticated, onSignOut }) {
   );
 }
 
+const translations = {
+  en: {
+    workspace: 'Adaptive intake workspace',
+    title: 'Forma AI Engine',
+    intro: 'Turn a quick description into a complete, validated form.',
+    admin: 'Open admin builder',
+    adminReturn: 'Return to claim',
+    audit: 'Audit log',
+    hideAudit: 'Hide audit log',
+    loadError: 'We could not connect to the form service. Check that the backend is running and try again.',
+    retry: 'Try again',
+    signIn: 'Sign in',
+    createAccount: 'Create account',
+    startOver: 'Start over',
+    undo: 'Undo AI fill',
+    submit: 'Submit data',
+    submitted: 'Your response has been captured successfully.',
+    moodDay: 'Day mode',
+    moodNight: 'Night mode',
+    language: 'Language',
+    loading: 'Loading your workspace...'
+  },
+  es: {
+    workspace: 'Espacio de ingreso adaptativo',
+    title: 'Motor Forma AI',
+    intro: 'Convierte una descripción breve en un formulario completo y validado.',
+    admin: 'Abrir creador',
+    adminReturn: 'Volver al formulario',
+    audit: 'Registro de auditoría',
+    hideAudit: 'Ocultar registro',
+    loadError: 'No pudimos conectarnos al servicio del formulario. Comprueba que el backend esté activo y vuelve a intentarlo.',
+    retry: 'Reintentar',
+    signIn: 'Iniciar sesión',
+    createAccount: 'Crear cuenta',
+    startOver: 'Empezar de nuevo',
+    undo: 'Deshacer relleno IA',
+    submit: 'Enviar datos',
+    submitted: 'Tu respuesta ha sido capturada correctamente.',
+    moodDay: 'Modo día',
+    moodNight: 'Modo noche',
+    language: 'Idioma',
+    loading: 'Cargando tu espacio de trabajo...'
+  },
+  fr: {
+    workspace: 'Espace d’intégration adaptatif',
+    title: 'Forma AI Engine',
+    intro: 'Transformez une description rapide en un formulaire complet et validé.',
+    admin: 'Ouvrir le builder',
+    adminReturn: 'Retour au formulaire',
+    audit: 'Journal d’audit',
+    hideAudit: 'Masquer le journal',
+    loadError: 'Nous n’avons pas pu nous connecter au service de formulaire. Vérifiez que le backend fonctionne puis réessayez.',
+    retry: 'Réessayer',
+    signIn: 'Se connecter',
+    createAccount: 'Créer un compte',
+    startOver: 'Recommencer',
+    undo: 'Annuler le remplissage IA',
+    submit: 'Soumettre les données',
+    submitted: 'Votre réponse a bien été enregistrée.',
+    moodDay: 'Mode jour',
+    moodNight: 'Mode nuit',
+    language: 'Langue',
+    loading: 'Chargement de votre espace...'
+  },
+  hi: {
+    workspace: 'अनुकूल इनटेक कार्यक्षेत्र',
+    title: 'फॉर्मा AI इंजन',
+    intro: 'एक छोटी विवरण को पूरा और सत्यापित फॉर्म में बदलें।',
+    admin: 'एडमिन बिल्डर खोलें',
+    adminReturn: 'फॉर्म पर वापस जाएँ',
+    audit: 'ऑडिट लॉग',
+    hideAudit: 'लॉग छिपाएँ',
+    loadError: 'फॉर्म सेवा से कनेक्ट नहीं हो पाया। बैकएंड चल रहा है या नहीं देखें और फिर से प्रयास करें।',
+    retry: 'फिर से प्रयास करें',
+    signIn: 'साइन इन',
+    createAccount: 'खाता बनाएं',
+    startOver: 'शुरू से करें',
+    undo: 'AI भराव को पूर्ववत करें',
+    submit: 'डेटा जमा करें',
+    submitted: 'आपका उत्तर सफलतापूर्वक दर्ज हो गया है।',
+    moodDay: 'डे मोड',
+    moodNight: 'नाइट मोड',
+    language: 'भाषा',
+    loading: 'आपका कार्यक्षेत्र लोड हो रहा है...'
+  },
+  de: {
+    workspace: 'Adaptiver Eingabe-Bereich',
+    title: 'Forma AI Engine',
+    intro: 'Verwandle eine kurze Beschreibung in ein vollständiges, validiertes Formular.',
+    admin: 'Admin-Builder öffnen',
+    adminReturn: 'Zurück zum Formular',
+    audit: 'Audit-Log',
+    hideAudit: 'Log ausblenden',
+    loadError: 'Die Formular-API konnte nicht erreicht werden. Prüfen Sie den Backend-Status und versuchen Sie es erneut.',
+    retry: 'Erneut versuchen',
+    signIn: 'Anmelden',
+    createAccount: 'Konto erstellen',
+    startOver: 'Neu starten',
+    undo: 'KI-Füllung rückgängig',
+    submit: 'Daten senden',
+    submitted: 'Ihre Antwort wurde erfolgreich erfasst.',
+    moodDay: 'Tagesmodus',
+    moodNight: 'Nachtmodus',
+    language: 'Sprache',
+    loading: 'Arbeitsbereich wird geladen...'
+  }
+};
+
 export default function App() {
   const [schemaId, setSchemaId] = useState(null);
   const [schema, setSchema] = useState(null);
@@ -91,6 +199,14 @@ export default function App() {
   const [showAudit, setShowAudit] = useState(false);
   const [auditLogs, setAuditLogs] = useState([]);
   const [provider, setProvider] = useState("");
+  const [uiLanguage, setUiLanguage] = useState(() => {
+    const saved = localStorage.getItem('forma-ai-language');
+    return saved || 'en';
+  });
+  const [theme, setTheme] = useState(() => {
+    const saved = localStorage.getItem('forma-ai-theme');
+    return saved || 'day';
+  });
   // Tracks which fields were populated by AI so submissions can be audited
   const provenanceRef = useRef({});
   const [authToken, setAuthToken] = useState(() =>
@@ -112,6 +228,15 @@ export default function App() {
     reset,
     formState: { errors },
   } = useForm({ mode: "onChange", shouldUnregister: true });
+
+  const t = translations[uiLanguage] || translations.en;
+
+  useEffect(() => {
+    document.body.dataset.theme = theme;
+    document.documentElement.lang = uiLanguage;
+    localStorage.setItem('forma-ai-theme', theme);
+    localStorage.setItem('forma-ai-language', uiLanguage);
+  }, [theme, uiLanguage]);
 
   // Decode stored token on mount to restore the session
   useEffect(() => {
@@ -186,9 +311,7 @@ export default function App() {
         setSchema(data);
       } catch (err) {
         console.error("Failed to initialize schema:", err);
-        setLoadError(
-          "We could not connect to the form service. Check that the backend is running and try again.",
-        );
+        setLoadError(t.loadError);
       } finally {
         setLoading(false);
       }
@@ -314,7 +437,7 @@ export default function App() {
       <main className="app-shell app-shell--centered">
         <div className="loading-state" role="status">
           <span className="loading-spinner" aria-hidden="true" />
-          <span>Loading your workspace...</span>
+          <span>{t.loading}</span>
         </div>
       </main>
     );
@@ -335,7 +458,7 @@ export default function App() {
             className="secondary-button"
             onClick={() => setSchemaLoadAttempt((n) => n + 1)}
           >
-            Try again
+            {t.retry}
           </button>
         </section>
       </main>
@@ -345,11 +468,33 @@ export default function App() {
   return (
     <main className="app-shell">
       <header className="app-header">
-        <p className="eyebrow">Adaptive intake workspace</p>
-        <h1>Forma AI Engine</h1>
-        <p className="app-intro">
-          Turn a quick description into a complete, validated form.
-        </p>
+        <div className="header-controls">
+          <label className="theme-switch" htmlFor="ui-language">
+            <span>{t.language}</span>
+            <select
+              id="ui-language"
+              value={uiLanguage}
+              onChange={(event) => setUiLanguage(event.target.value)}
+            >
+              <option value="en">English</option>
+              <option value="es">Español</option>
+              <option value="fr">Français</option>
+              <option value="hi">हिन्दी</option>
+              <option value="de">Deutsch</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={() => setTheme((current) => (current === 'day' ? 'night' : 'day'))}
+            aria-label={theme === 'day' ? t.moodNight : t.moodDay}
+          >
+            {theme === 'day' ? '☾' : '☀'} {theme === 'day' ? t.moodNight : t.moodDay}
+          </button>
+        </div>
+        <p className="eyebrow">{t.workspace}</p>
+        <h1>{t.title}</h1>
+        <p className="app-intro">{t.intro}</p>
         <button
           type="button"
           className="admin-toggle"
@@ -361,7 +506,7 @@ export default function App() {
           }
           onClick={() => setShowAdmin((current) => !current)}
         >
-          {showAdmin ? "Return to claim" : "Open admin builder"}
+          {showAdmin ? t.adminReturn : t.admin}
         </button>
         {user?.role === "admin" || user?.role === "reviewer" ? (
           <button
@@ -372,7 +517,7 @@ export default function App() {
               loadAuditLog();
             }}
           >
-            {showAudit ? "Hide audit log" : "Audit log"}
+            {showAudit ? t.hideAudit : t.audit}
           </button>
         ) : null}
       </header>
@@ -449,7 +594,7 @@ export default function App() {
               </span>
             </div>
             <button type="button" className="text-button" onClick={clearDraft}>
-              Start over
+              {t.startOver}
             </button>
             {undoValues && (
               <button
@@ -460,7 +605,7 @@ export default function App() {
                   setUndoValues(null);
                 }}
               >
-                Undo AI fill
+                {t.undo}
               </button>
             )}
           </div>
@@ -498,11 +643,11 @@ export default function App() {
           ))}
 
           <button type="submit" className="submit-button">
-            Submit data <span aria-hidden="true">-&gt;</span>
+            {t.submit} <span aria-hidden="true">-&gt;</span>
           </button>
           {submitted && (
             <p className="success-message" role="status">
-              Your response has been captured successfully.
+              {t.submitted}
             </p>
           )}
         </form>
