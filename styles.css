@@ -562,5 +562,4 @@ button:disabled { background: var(--disabled-bg); color: var(--disabled-text); c
 .provider-badge {
   font-size: 0.8rem;
   color: var(--muted);
-  margin: 0.25rem 0;
-}
+  margin: 0.25rem 0;}
