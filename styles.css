@@ -559,7 +559,9 @@ button:disabled { background: var(--disabled-bg); color: var(--disabled-text); c
 .audit-source--system { background: var(--info-soft); color: var(--info); }
 
 /* ---- Provider badge ---- */
-.provider-badge {
+.provider-badge 
+{
   font-size: 0.8rem;
   color: var(--muted);
-  margin: 0.25rem 0;}
+  margin: 0.25rem 0;
+}
