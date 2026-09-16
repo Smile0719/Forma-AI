@@ -502,4 +502,5 @@ mongoose
     console.error('MongoDB connection error:', err.message);
     console.log('Starting backend in local mock database mode.');
     startServer();
-  });
+  }
+);
