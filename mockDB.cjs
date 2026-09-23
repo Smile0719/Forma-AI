@@ -6,7 +6,8 @@ class MockDB {
       revisions: [],
       drafts: [],
       users: [],
-      auditlogs: []
+      auditlogs: [],
+      submissions: []
     };
     this.idCounter = 1;
   }

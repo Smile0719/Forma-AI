@@ -565,3 +565,9 @@ button:disabled { background: var(--disabled-bg); color: var(--disabled-text); c
   color: var(--muted);
   margin: 0.25rem 0;
 }
+
+.submission-panel { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border, #ddd); }
+.submission-table-wrap { overflow-x: auto; }
+.submission-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.submission-table th, .submission-table td { padding: 0.7rem; text-align: left; border-bottom: 1px solid var(--border, #ddd); white-space: nowrap; }
+.submission-table th { font-weight: 700; }

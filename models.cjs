@@ -52,6 +52,18 @@ const UserSchema = new mongoose.Schema({
   role: { type: String, enum: ['admin', 'reviewer', 'user'], default: 'user' }
 }, { timestamps: true });
 
+const SubmissionSchema = new mongoose.Schema({
+  schemaId: { type: mongoose.Schema.Types.ObjectId, ref: 'DynamicForm', required: true },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  userEmail: { type: String },
+  clientId: { type: String },
+  values: { type: mongoose.Schema.Types.Mixed, required: true },
+  provenance: { type: mongoose.Schema.Types.Mixed },
+  confidence: { type: mongoose.Schema.Types.Mixed },
+  reviewRequired: { type: Boolean, default: false },
+  status: { type: String, enum: ['submitted', 'reviewed'], default: 'submitted' }
+}, { timestamps: true });
+
 const AuditLogSchema = new mongoose.Schema({
   schemaId: { type: mongoose.Schema.Types.ObjectId, ref: 'DynamicForm' },
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -73,7 +85,8 @@ const mongoModels = {
   FormRevision: mongoose.model('FormRevision', FormRevisionSchema),
   FormDraft: mongoose.model('FormDraft', FormDraftSchema),
   User: mongoose.model('User', UserSchema),
-  AuditLog: mongoose.model('AuditLog', AuditLogSchema)
+  AuditLog: mongoose.model('AuditLog', AuditLogSchema),
+  Submission: mongoose.model('Submission', SubmissionSchema)
 };
 
 const createAdapter = (collectionName, model) => ({
@@ -92,7 +105,8 @@ const exportedModels = {
   FormRevision: createAdapter('revisions', mongoModels.FormRevision),
   FormDraft: createAdapter('drafts', mongoModels.FormDraft),
   User: createAdapter('users', mongoModels.User),
-  AuditLog: createAdapter('auditlogs', mongoModels.AuditLog)
+  AuditLog: createAdapter('auditlogs', mongoModels.AuditLog),
+  Submission: createAdapter('submissions', mongoModels.Submission)
 };
 
 module.exports = exportedModels;
@@ -101,3 +115,4 @@ module.exports.FormRevision = exportedModels.FormRevision;
 module.exports.FormDraft = exportedModels.FormDraft;
 module.exports.User = exportedModels.User;
 module.exports.AuditLog = exportedModels.AuditLog;
+module.exports.Submission = exportedModels.Submission;

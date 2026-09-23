@@ -7,7 +7,7 @@ const { PDFParse } = require('pdf-parse');
 const Tesseract = require('tesseract.js');
 require('dotenv').config();
 
-const { DynamicForm, FormRevision, FormDraft, User, AuditLog } = require('./models.cjs');
+const { DynamicForm, FormRevision, FormDraft, User, AuditLog, Submission } = require('./models.cjs');
 const { extractFormData, transcribeAudio, buildProviderChain } = require('./llmService.cjs');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
@@ -370,8 +370,8 @@ app.post('/api/ai/extract', async (req, res) => {
     return res.status(400).json({ error: 'A schema ID and narrative are required.' });
   }
 
-  if (!process.env.OPENAI_API_KEY) {
-    return res.status(503).json({ error: 'AI extraction is not configured. Add OPENAI_API_KEY to your environment.' });
+  if (!buildProviderChain().length) {
+    return res.status(503).json({ error: 'AI extraction is not configured. Add an OpenAI, Anthropic, or Ollama provider in your environment.' });
   }
 
   try {
@@ -405,8 +405,8 @@ app.post('/api/ai/upload', upload.single('document'), async (req, res) => {
   if (!schemaId || !req.file) {
     return res.status(400).json({ error: 'A schema ID and document are required.' });
   }
-  if (!process.env.OPENAI_API_KEY) {
-    return res.status(503).json({ error: 'AI extraction is not configured. Add OPENAI_API_KEY to your environment.' });
+  if (!buildProviderChain().length) {
+    return res.status(503).json({ error: 'AI extraction is not configured. Add an OpenAI, Anthropic, or Ollama provider in your environment.' });
   }
 
   try {
@@ -458,8 +458,23 @@ app.post('/api/submissions', async (req, res) => {
     const schema = await DynamicForm.findById(schemaId);
     if (!schema) return res.status(404).json({ error: 'Schema not found.' });
 
-    // One immutable audit entry per field, tagged AI or Human
+    // Persist the actual submission for reviewer/admin workflows.
     const sourceMap = provenance && typeof provenance === 'object' ? provenance : {};
+    const confidence = sourceMap.confidence && typeof sourceMap.confidence === 'object' ? sourceMap.confidence : {};
+    const confidenceValues = Object.values(confidence).filter((value) => typeof value === 'number');
+    const reviewRequired = confidenceValues.some((value) => value < 70);
+    const submission = await Submission.create({
+      schemaId,
+      userId: req.user?.sub,
+      userEmail: req.user?.email,
+      clientId,
+      values,
+      provenance: sourceMap,
+      confidence,
+      reviewRequired
+    });
+
+    // One immutable audit entry per field, tagged AI or Human
     const entries = Object.keys(values).map((fieldName) => ({
       schemaId,
       userId: req.user?.sub,
@@ -472,10 +487,22 @@ app.post('/api/submissions', async (req, res) => {
     }));
     if (entries.length) await AuditLog.insertMany(entries);
 
-    res.status(201).json({ success: true, auditedFields: entries.length });
+    res.status(201).json({ success: true, submissionId: submission._id, reviewRequired, auditedFields: entries.length });
   } catch (err) {
     console.error('Submission error:', err.message);
     res.status(500).json({ error: 'Submission could not be recorded.' });
+  }
+});
+
+// ---------- Submitted claims (admin & reviewer) ----------
+app.get('/api/submissions', requireRole('admin', 'reviewer'), async (req, res) => {
+  try {
+    const filter = {};
+    if (req.query.schemaId) filter.schemaId = req.query.schemaId;
+    const submissions = await Submission.find(filter).sort({ createdAt: -1 }).limit(200);
+    return res.json(submissions);
+  } catch (err) {
+    return res.status(500).json({ error: 'Submissions could not be loaded.' });
   }
 });
 

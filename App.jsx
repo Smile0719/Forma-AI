@@ -193,7 +193,9 @@ export default function App() {
   const [loadError, setLoadError] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [confidenceScores, setConfidenceScores] = useState({});
-  const [showAdmin, setShowAdmin] = useState(false);
+  const initialPath = window.location.pathname;
+  const routeSchemaId = initialPath.startsWith('/form/') ? initialPath.split('/form/')[1] : null;
+  const [showAdmin, setShowAdmin] = useState(initialPath === '/admin/dashboard');
   const [undoValues, setUndoValues] = useState(null);
   const [user, setUser] = useState(null);
   const [showAudit, setShowAudit] = useState(false);
@@ -294,8 +296,10 @@ export default function App() {
       setLoading(true);
       setLoadError("");
       try {
-        let response = await fetch(`${API_BASE_URL}/api/schemas/latest`);
-        if (response.status === 404) {
+        let response = routeSchemaId
+          ? await fetch(`${API_BASE_URL}/api/schemas/${routeSchemaId}`)
+          : await fetch(`${API_BASE_URL}/api/schemas/latest`);
+        if (!routeSchemaId && response.status === 404) {
           // No schema exists yet — seed an initial one
           response = await fetch(`${API_BASE_URL}/api/schemas/seed`, {
             method: "POST",
@@ -318,7 +322,7 @@ export default function App() {
     };
 
     fetchOrCreateSchema();
-  }, [schemaLoadAttempt]);
+  }, [schemaLoadAttempt, routeSchemaId]);
 
   useEffect(() => {
     if (!draftKey) return;
@@ -422,6 +426,24 @@ export default function App() {
     }
   };
 
+  const saveDraft = async () => {
+    if (!schemaId) return;
+    const values = formValuesRef.current;
+    const savedAt = new Date().toISOString();
+    window.localStorage.setItem(draftKey, JSON.stringify({ values, savedAt }));
+    setDraftSavedAt(savedAt);
+    setHasDraft(true);
+    try {
+      await fetch(`${API_BASE_URL}/api/drafts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ schemaId, clientId, values })
+      });
+    } catch (err) {
+      console.warn('Draft save unavailable:', err.message);
+    }
+  };
+
   const clearDraft = () => {
     reset({});
     setConfidenceScores({});
@@ -504,7 +526,11 @@ export default function App() {
               ? undefined
               : "Only admins can open the form builder"
           }
-          onClick={() => setShowAdmin((current) => !current)}
+          onClick={() => {
+            const next = !showAdmin;
+            window.history.pushState({}, '', next ? '/admin/dashboard' : '/dashboard');
+            setShowAdmin(next);
+          }}
         >
           {showAdmin ? t.adminReturn : t.admin}
         </button>
@@ -593,6 +619,9 @@ export default function App() {
                 {completedFields} of {visibleFields.length} fields filled
               </span>
             </div>
+            <button type="button" className="secondary-button" onClick={saveDraft}>
+              Save draft
+            </button>
             <button type="button" className="text-button" onClick={clearDraft}>
               {t.startOver}
             </button>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   closestCenter,
   DndContext,
@@ -63,6 +63,8 @@ export default function AdminDashboard({ schema, apiBaseUrl, authToken, onClose,
   const [fields, setFields] = useState(schema.fields.map((field) => ({ ...field, validation: { ...field.validation } })));
   const [revisions, setRevisions] = useState([]);
   const [message, setMessage] = useState('');
+  const [submissions, setSubmissions] = useState([]);
+  const [loadingSubmissions, setLoadingSubmissions] = useState(false);
   const sensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
 
   const updateField = (index, field) => setFields((current) => current.map((item, itemIndex) => itemIndex === index ? field : item));
@@ -72,6 +74,22 @@ export default function AdminDashboard({ schema, apiBaseUrl, authToken, onClose,
     setFields((current) => arrayMove(current, current.findIndex((field) => field.name === active.id), current.findIndex((field) => field.name === over.id)));
   };
   const authHeaders = { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) };
+  const loadSubmissions = async () => {
+    setLoadingSubmissions(true);
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/submissions?schemaId=${schema._id}`, { headers: authHeaders });
+      const data = await response.json().catch(() => []);
+      if (!response.ok) throw new Error(data.error || 'Could not load submissions.');
+      setSubmissions(Array.isArray(data) ? data : []);
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setLoadingSubmissions(false);
+    }
+  };
+
+  useEffect(() => { loadSubmissions(); }, [schema._id]);
+
   const save = async () => {
     const response = await fetch(`${apiBaseUrl}/api/schemas/${schema._id}`, { method: 'PUT', headers: authHeaders, body: JSON.stringify({ title, description, fields }) });
     const data = await response.json();
@@ -101,5 +119,20 @@ export default function AdminDashboard({ schema, apiBaseUrl, authToken, onClose,
     <div className="admin-actions"><button type="button" className="secondary-button" onClick={() => setFields((current) => [...current, emptyField(current.length + 1)])}>Add field</button><button type="button" className="submit-button admin-save" onClick={save}>Save form</button></div>
     {message && <p className="draft-status" role="status">{message}</p>}
     <details className="revision-list"><summary onClick={loadRevisions}>Revision history</summary>{revisions.map((revision) => <div key={revision._id}><span>Version {revision.version} · {new Date(revision.createdAt).toLocaleString()}</span><button type="button" className="text-button" onClick={() => restore(revision._id)}>Restore</button></div>)}</details>
+
+    <section className="submission-panel">
+      <div className="admin-header"><div><p className="eyebrow">Reviewer workspace</p><h3>Submitted claims</h3></div><button type="button" className="text-button" onClick={loadSubmissions}>Refresh</button></div>
+      {loadingSubmissions ? <p>Loading submissions...</p> : submissions.length === 0 ? <p>No submitted claims yet.</p> : (
+        <div className="submission-table-wrap">
+          <table className="submission-table"><thead><tr><th>Submitted</th><th>User</th><th>Status</th><th>AI confidence</th><th>Manual review</th></tr></thead>
+            <tbody>{submissions.map((submission) => {
+              const confidenceValues = Object.values(submission.confidence || {}).filter((value) => typeof value === 'number');
+              const average = confidenceValues.length ? Math.round(confidenceValues.reduce((a, b) => a + b, 0) / confidenceValues.length) : null;
+              return <tr key={submission._id}><td>{new Date(submission.createdAt).toLocaleString()}</td><td>{submission.userEmail || submission.clientId || 'Anonymous'}</td><td>{submission.status}</td><td>{average === null ? '—' : `${average}%`}</td><td>{submission.reviewRequired ? 'Required' : 'Not flagged'}</td></tr>;
+            })}</tbody>
+          </table>
+        </div>
+      )}
+    </section>
   </section>;
 }
