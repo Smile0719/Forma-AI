@@ -135,4 +135,5 @@ export default function AdminDashboard({ schema, apiBaseUrl, authToken, onClose,
       )}
     </section>
   </section>;
+  
 }
