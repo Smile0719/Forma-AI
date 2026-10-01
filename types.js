@@ -22,11 +22,17 @@
  * @typedef {Object} Field
  * @property {string} name - Unique field key.
  * @property {string} label
- * @property {"text"|"number"|"select"|"checkbox"} type
+ * @property {"text"|"textarea"|"email"|"date"|"number"|"select"|"radio"|"checkbox"} type
  * @property {string} [placeholder]
  * @property {Option[]} [options] - Required for select fields.
  * @property {Validation} [validation]
- * @property {ShowIf} [showIf] - Conditional visibility rule.
+ * @property {ShowIf|ConditionGroup} [showIf] - Conditional visibility rule.
+ */
+
+/**
+ * @typedef {Object} ConditionGroup
+ * @property {"all"|"any"} operator
+ * @property {(ShowIf|ConditionGroup)[]} conditions
  */
 
 /**

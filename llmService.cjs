@@ -128,7 +128,7 @@ USER NARRATIVE:
       Object.entries(rawValues).filter(([key, value]) => {
         const field = allowedFields.get(key);
         if (!field || value === null || value === undefined) return false;
-        if (field.type === 'select') {
+        if (field.type === 'select' || field.type === 'radio') {
           return field.options?.some((option) => option.value === value) || false;
         }
         if (field.type === 'checkbox') return typeof value === 'boolean';
@@ -162,7 +162,7 @@ USER NARRATIVE:
  * Returns { text, provider } or throws so the caller can fall back to the Web Speech API.
  */
 const transcribeAudio = async (buffer, filename = 'audio.webm') => {
-  if (!process.env.OPENAI_API_KEY) {
+  if (!hasUsableApiKey(process.env.OPENAI_API_KEY)) {
     throw new Error('Whisper transcription is not configured.');
   }
   const form = new FormData();

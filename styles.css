@@ -387,6 +387,9 @@ button:disabled { background: var(--disabled-bg); color: var(--disabled-text); c
 .field-checkbox { display: flex; align-items: center; gap: 10px; }
 .field-checkbox label { order: 2; margin: 0; }
 .field-checkbox input { order: 1; width: 18px; min-height: 18px; accent-color: var(--accent); }
+.radio-options { display: flex; flex-wrap: wrap; gap: 14px; padding: 0; border: 0; }
+.radio-options label { display: inline-flex; align-items: center; gap: 7px; margin: 0; }
+.radio-options input { width: auto; min-height: auto; accent-color: var(--accent); }
 .field-error { margin-top: 7px; }
 .submit-button {
   width: 100%;
@@ -448,6 +451,15 @@ button:disabled { background: var(--disabled-bg); color: var(--disabled-text); c
 .admin-actions { display: flex; justify-content: space-between; gap: 12px; margin-top: 20px; }
 .admin-actions .secondary-button { border: 0; color: var(--button-text); cursor: pointer; font-weight: 800; }
 .admin-save { width: auto; min-width: 140px; margin-top: 0; }
+.form-manager { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin-bottom: 20px; padding: 14px; background: var(--panel-soft); border-radius: 12px; }
+.form-manager label, .claim-filters label { display: grid; gap: 6px; color: var(--muted); font-size: 11px; font-weight: 800; }
+.form-manager select, .claim-filters select { min-width: 210px; padding: 9px; }
+.claim-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 16px; margin-bottom: 14px; color: var(--muted); font-size: 12px; }
+.claim-inspector { margin-top: 16px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.claim-inspector h4 { margin: 6px 0; }
+.claim-inspector dl { display: grid; grid-template-columns: minmax(120px, 1fr) 2fr; gap: 8px 16px; }
+.claim-inspector dt { color: var(--muted); font-weight: 700; }
+.claim-inspector dd { margin: 0; overflow-wrap: anywhere; }
 .revision-list { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 16px; color: var(--muted); font-size: 12px; }
 .revision-list summary { cursor: pointer; font-weight: 800; color: var(--ink); }
 .revision-list > div { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }

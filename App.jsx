@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { MagicInput } from "./MagicInput";
 import AdminDashboard from "./AdminDashboard";
 import FormField from "./FormField";
+import { isFieldVisible } from "./formRules.js";
 import "./styles.css";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
@@ -192,6 +193,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [submissionError, setSubmissionError] = useState("");
   const [confidenceScores, setConfidenceScores] = useState({});
   const initialPath = window.location.pathname;
   const routeSchemaId = initialPath.startsWith('/form/') ? initialPath.split('/form/')[1] : null;
@@ -275,10 +277,7 @@ export default function App() {
   );
 
   const visibleFields =
-    schema?.fields.filter(
-      (field) =>
-        !field.showIf || formValues[field.showIf.field] === field.showIf.equals,
-    ) || [];
+    schema?.fields.filter((field) => isFieldVisible(field, formValues, schema.fields)) || [];
   const completedFields = visibleFields.filter((field) => {
     const value = formValues[field.name];
     return field.type === "checkbox"
@@ -342,6 +341,34 @@ export default function App() {
   }, [draftKey, reset]);
 
   useEffect(() => {
+    if (!schemaId) return;
+    let cancelled = false;
+    const recoverDraft = async () => {
+      try {
+        const response = await authFetch(
+          `${API_BASE_URL}/api/drafts/${schemaId}?clientId=${encodeURIComponent(clientId)}`,
+        );
+        if (response.status === 404) return;
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || "Saved draft could not be loaded.");
+        if (cancelled || Object.keys(formValuesRef.current).length) return;
+
+        const cached = draftKey ? window.localStorage.getItem(draftKey) : null;
+        const localDraft = cached ? JSON.parse(cached) : null;
+        if (localDraft?.savedAt && new Date(localDraft.savedAt) >= new Date(data.savedAt)) return;
+        reset(data.values || {});
+        setDraftSavedAt(data.savedAt || null);
+        setHasDraft(true);
+        if (draftKey) window.localStorage.setItem(draftKey, JSON.stringify(data));
+      } catch (err) {
+        console.warn("Server draft recovery unavailable:", err.message);
+      }
+    };
+    recoverDraft();
+    return () => { cancelled = true; };
+  }, [API_BASE_URL, authToken, clientId, draftKey, reset, schemaId]);
+
+  useEffect(() => {
     if (!draftKey || !schema || !Object.keys(formValues).length) return;
 
     const savedAt = new Date().toISOString();
@@ -363,7 +390,7 @@ export default function App() {
     const syncDraft = () => {
       const values = formValuesRef.current;
       if (!Object.keys(values).length) return;
-      fetch(`${API_BASE_URL}/api/drafts`, {
+      authFetch(`${API_BASE_URL}/api/drafts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ schemaId, clientId, values }),
@@ -371,7 +398,7 @@ export default function App() {
     };
     const interval = window.setInterval(syncDraft, 10000);
     return () => window.clearInterval(interval);
-  }, [API_BASE_URL, clientId, schemaId]);
+  }, [API_BASE_URL, authToken, clientId, schemaId]);
 
   // Hydrate extracted AI data into React Hook Form state
   const handleExtractionComplete = (extractedData, confidence = {}) => {
@@ -395,8 +422,8 @@ export default function App() {
   };
 
   const onSubmit = async (data) => {
-    console.log("Final Form Submission:", data);
-    setSubmitted(true);
+    setSubmitted(false);
+    setSubmissionError("");
     try {
       const response = await authFetch(`${API_BASE_URL}/api/submissions`, {
         method: "POST",
@@ -408,9 +435,13 @@ export default function App() {
           clientId,
         }),
       });
-      if (!response.ok) console.warn("Submission audit could not be recorded.");
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result.details?.join(" ") || result.error || "Submission could not be recorded.");
+      }
+      setSubmitted(true);
     } catch (err) {
-      console.warn("Submission sync failed:", err.message);
+      setSubmissionError(err.message);
     }
   };
 
@@ -434,7 +465,7 @@ export default function App() {
     setDraftSavedAt(savedAt);
     setHasDraft(true);
     try {
-      await fetch(`${API_BASE_URL}/api/drafts`, {
+      await authFetch(`${API_BASE_URL}/api/drafts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ schemaId, clientId, values })
@@ -587,7 +618,10 @@ export default function App() {
           schema={schema}
           apiBaseUrl={API_BASE_URL}
           authToken={authToken}
-          onClose={() => setShowAdmin(false)}
+          onClose={() => {
+            setShowAdmin(false);
+            setSchemaLoadAttempt((attempt) => attempt + 1);
+          }}
           onSaved={(updatedSchema) => {
             setSchema(updatedSchema);
             setSchemaId(updatedSchema._id);
@@ -679,6 +713,7 @@ export default function App() {
               {t.submitted}
             </p>
           )}
+          {submissionError && <p className="magic-error" role="alert">{submissionError}</p>}
         </form>
       )}
     </main>

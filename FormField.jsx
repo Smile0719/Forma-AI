@@ -22,7 +22,31 @@ export function buildValidationRules(field) {
           message: `Use no more than ${field.validation.maxLength} characters`,
         }
       : undefined,
+    min: field.type === "number" && field.validation?.minimum !== undefined
+      ? { value: field.validation.minimum, message: `Use at least ${field.validation.minimum}` }
+      : undefined,
+    max: field.type === "number" && field.validation?.maximum !== undefined
+      ? { value: field.validation.maximum, message: `Use no more than ${field.validation.maximum}` }
+      : undefined,
   };
+
+  if (field.type === "email") {
+    rules.pattern = {
+      value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+      message: "Enter a valid email address",
+    };
+  }
+  if (field.type === "date") {
+    rules.pattern = {
+      value: /^\d{4}-\d{2}-\d{2}$/,
+      message: "Enter a valid date",
+    };
+  }
+  if (field.type === "select" || field.type === "radio") {
+    rules.validate = (value) =>
+      !value || field.options?.some((option) => option.value === value) ||
+      "Choose one of the available options";
+  }
 
   if (field.validation?.pattern) {
     try {
@@ -66,13 +90,34 @@ function renderControl(field, register, validationRules, onManualEdit) {
           {...register(field.name, withEdit(validationRules))}
         />
       );
+    case "textarea":
+      return (
+        <textarea
+          id={field.name}
+          placeholder={field.placeholder || ""}
+          {...register(field.name, withEdit(validationRules))}
+        />
+      );
+    case "email":
+    case "date":
+      return (
+        <input
+          type={field.type}
+          id={field.name}
+          placeholder={field.placeholder || ""}
+          {...register(field.name, withEdit(validationRules))}
+        />
+      );
     case "number":
       return (
         <input
           type="number"
           id={field.name}
           placeholder={field.placeholder || ""}
-          {...register(field.name, withEdit(validationRules))}
+          {...register(field.name, {
+            ...withEdit(validationRules),
+            setValueAs: (value) => value === "" ? undefined : Number(value),
+          })}
         />
       );
     case "select":
@@ -88,6 +133,21 @@ function renderControl(field, register, validationRules, onManualEdit) {
             </option>
           ))}
         </select>
+      );
+    case "radio":
+      return (
+        <fieldset className="radio-options" aria-label={field.label}>
+          {field.options?.map((option) => (
+            <label key={option.value}>
+              <input
+                type="radio"
+                value={option.value}
+                {...register(field.name, withEdit(validationRules))}
+              />
+              {option.label}
+            </label>
+          ))}
+        </fieldset>
       );
     case "checkbox":
       return (

@@ -9,6 +9,7 @@ require('dotenv').config();
 
 const { DynamicForm, FormRevision, FormDraft, User, AuditLog, Submission } = require('./models.cjs');
 const { extractFormData, transcribeAudio, buildProviderChain } = require('./llmService.cjs');
+const formRules = import('./formRules.js');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 
@@ -64,6 +65,10 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', database: mongoose.connection.readyState === 1 ? 'connected' : 'connecting' });
 });
 
+app.get('/api/ai/status', (_req, res) => {
+  res.json({ providers: buildProviderChain().map(({ name }) => name) });
+});
+
 // ---------- Authentication (RBAC) ----------
 app.post('/api/auth/register', async (req, res) => {
   try {
@@ -109,16 +114,43 @@ app.get('/api/auth/me', requireRole(), (req, res) => {
 
 // ---------- Schemas ----------
 app.get('/api/schemas/latest', async (req, res) => {
-  const schema = await DynamicForm.findOne().sort({ createdAt: -1 });
+  const schemas = await DynamicForm.find({}).sort({ createdAt: -1 });
+  const schema = schemas.find((item) => !item.archived);
   if (!schema) return res.status(404).json({ message: 'No schema found' });
   return res.json(schema);
+});
+
+app.get('/api/schemas', requireRole('admin'), async (_req, res) => {
+  try {
+    const schemas = await DynamicForm.find({}).sort({ createdAt: -1 });
+    return res.json(schemas.filter((item) => !item.archived));
+  } catch (err) {
+    return res.status(500).json({ error: 'Schemas could not be loaded.' });
+  }
+});
+
+app.post('/api/schemas', requireRole('admin'), async (req, res) => {
+  const { title, description = '', fields = [] } = req.body || {};
+  if (typeof title !== 'string' || !title.trim() || !Array.isArray(fields)) {
+    return res.status(400).json({ error: 'A title and fields array are required.' });
+  }
+  try {
+    const { validateSchemaDefinition } = await formRules;
+    const schemaErrors = validateSchemaDefinition(fields);
+    if (schemaErrors.length) return res.status(422).json({ error: 'Schema validation failed.', details: schemaErrors });
+    const schema = await DynamicForm.create({ title: title.trim(), description, fields, version: 1 });
+    await FormRevision.create({ schemaId: schema._id, version: 1, snapshot: schema.toObject ? schema.toObject() : schema });
+    return res.status(201).json(schema);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
 });
 
 app.get('/api/schemas/:id', async (req, res) => {
   try {
     const schema = await DynamicForm.findById(req.params.id);
 
-    if (!schema) {
+    if (!schema || schema.archived) {
       return res.status(404).json({ message: 'Schema not found' });
     }
 
@@ -128,10 +160,24 @@ app.get('/api/schemas/:id', async (req, res) => {
   }
 });
 
+app.delete('/api/schemas/:id', requireRole('admin'), async (req, res) => {
+  try {
+    const schema = await DynamicForm.findById(req.params.id);
+    if (!schema || schema.archived) return res.status(404).json({ error: 'Schema not found.' });
+    await DynamicForm.findByIdAndUpdate(req.params.id, { archived: true, archivedAt: new Date() }, { new: true });
+    return res.json({ success: true, archived: true });
+  } catch (err) {
+    return res.status(500).json({ error: 'Schema could not be archived.' });
+  }
+});
+
 app.put('/api/schemas/:id', requireRole('admin'), async (req, res) => {
   try {
     const current = await DynamicForm.findById(req.params.id);
-    if (!current) return res.status(404).json({ error: 'Schema not found.' });
+    if (!current || current.archived) return res.status(404).json({ error: 'Schema not found.' });
+    const { validateSchemaDefinition } = await formRules;
+    const schemaErrors = validateSchemaDefinition(req.body.fields);
+    if (schemaErrors.length) return res.status(422).json({ error: 'Schema validation failed.', details: schemaErrors });
 
     const nextVersion = (current.version || 1) + 1;
     const updated = await DynamicForm.findByIdAndUpdate(
@@ -172,17 +218,55 @@ app.post('/api/schemas/:id/restore/:revisionId', requireRole('admin', 'reviewer'
 
 app.post('/api/drafts', async (req, res) => {
   const { schemaId, clientId, values } = req.body;
-  if (!schemaId || !clientId || !values || typeof values !== 'object') {
+  if (!schemaId || !clientId || !values || typeof values !== 'object' || Array.isArray(values)) {
     return res.status(400).json({ error: 'schemaId, clientId, and values are required.' });
   }
-  const draft = await FormDraft.findOneAndUpdate(
-    { schemaId, clientId },
-    { values, savedAt: new Date() },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
-  );
-  return res.json({ savedAt: draft.savedAt });
+  try {
+    const schema = await DynamicForm.findById(schemaId);
+    if (!schema || schema.archived) return res.status(404).json({ error: 'Schema not found.' });
+    let draft;
+    if (req.user) {
+      draft = await FormDraft.findOne({ schemaId, userId: req.user.sub });
+      if (draft) {
+        draft = await FormDraft.findByIdAndUpdate(draft._id, { values, savedAt: new Date() }, { new: true });
+      } else {
+        const browserDraft = await FormDraft.findOne({ schemaId, clientId });
+        if (browserDraft?.userId && String(browserDraft.userId) !== String(req.user.sub)) {
+          return res.status(409).json({ error: 'This browser draft belongs to a different account.' });
+        }
+        if (browserDraft) {
+          draft = await FormDraft.findByIdAndUpdate(browserDraft._id, { values, userId: req.user.sub, savedAt: new Date() }, { new: true });
+        } else {
+          draft = await FormDraft.create({ schemaId, clientId, userId: req.user.sub, values, savedAt: new Date() });
+        }
+      }
+    } else {
+      const browserDraft = await FormDraft.findOne({ schemaId, clientId });
+      if (browserDraft?.userId) return res.status(401).json({ error: 'Sign in to access this saved draft.' });
+      draft = browserDraft
+        ? await FormDraft.findByIdAndUpdate(browserDraft._id, { values, savedAt: new Date() }, { new: true })
+        : await FormDraft.create({ schemaId, clientId, values, savedAt: new Date() });
+    }
+    return res.json({ savedAt: draft.savedAt });
+  } catch (err) {
+    return res.status(500).json({ error: 'Draft could not be saved.' });
+  }
 });
 
+app.get('/api/drafts/:schemaId', async (req, res) => {
+  if (!req.user && !req.query.clientId) {
+    return res.status(400).json({ error: 'A client ID is required for anonymous draft recovery.' });
+  }
+  try {
+    const draft = req.user
+      ? await FormDraft.findOne({ schemaId: req.params.schemaId, userId: req.user.sub })
+      : await FormDraft.findOne({ schemaId: req.params.schemaId, clientId: req.query.clientId });
+    if (!draft || (!req.user && draft.userId)) return res.status(404).json({ message: 'Draft not found.' });
+    return res.json({ values: draft.values, savedAt: draft.savedAt });
+  } catch (err) {
+    return res.status(500).json({ error: 'Draft could not be loaded.' });
+  }
+});
 const extractDocumentText = async (file) => {
   const extension = path.extname(file.originalname).toLowerCase();
   if (extension === '.pdf' || file.mimetype === 'application/pdf') {
@@ -200,8 +284,8 @@ const extractDocumentText = async (file) => {
 // so a fresh install can boot without manual setup.
 const allowSeed = async (req, res, next) => {
   if (req.user?.role === 'admin') return next();
-  const count = await DynamicForm.countDocuments();
-  if (count === 0) return next();
+  const schemas = await DynamicForm.find({});
+  if (!schemas.some((schema) => !schema.archived)) return next();
   return res.status(403).json({ error: 'Only an admin can seed additional schemas.' });
 };
 
@@ -451,12 +535,18 @@ app.post('/api/ai/transcribe', upload.single('audio'), async (req, res) => {
 // ---------- Submissions with AI/Human provenance audit ----------
 app.post('/api/submissions', async (req, res) => {
   const { schemaId, values, provenance, clientId } = req.body;
-  if (!schemaId || !values || typeof values !== 'object') {
+  if (!schemaId || !values || typeof values !== 'object' || Array.isArray(values)) {
     return res.status(400).json({ error: 'schemaId and values are required.' });
   }
   try {
     const schema = await DynamicForm.findById(schemaId);
-    if (!schema) return res.status(404).json({ error: 'Schema not found.' });
+    if (!schema || schema.archived) return res.status(404).json({ error: 'Schema not found.' });
+
+    const { validateSubmission } = await formRules;
+    const validation = validateSubmission(schema.fields, values);
+    if (validation.errors.length) {
+      return res.status(422).json({ error: 'Submission validation failed.', details: validation.errors });
+    }
 
     // Persist the actual submission for reviewer/admin workflows.
     const sourceMap = provenance && typeof provenance === 'object' ? provenance : {};
@@ -468,14 +558,14 @@ app.post('/api/submissions', async (req, res) => {
       userId: req.user?.sub,
       userEmail: req.user?.email,
       clientId,
-      values,
+      values: validation.values,
       provenance: sourceMap,
       confidence,
       reviewRequired
     });
 
     // One immutable audit entry per field, tagged AI or Human
-    const entries = Object.keys(values).map((fieldName) => ({
+    const entries = Object.keys(validation.values).map((fieldName) => ({
       schemaId,
       userId: req.user?.sub,
       userEmail: req.user?.email,
@@ -503,6 +593,32 @@ app.get('/api/submissions', requireRole('admin', 'reviewer'), async (req, res) =
     return res.json(submissions);
   } catch (err) {
     return res.status(500).json({ error: 'Submissions could not be loaded.' });
+  }
+});
+
+app.patch('/api/submissions/:id', requireRole('admin', 'reviewer'), async (req, res) => {
+  const { status } = req.body || {};
+  if (!['submitted', 'reviewed'].includes(status)) {
+    return res.status(400).json({ error: 'Status must be submitted or reviewed.' });
+  }
+  try {
+    const submission = await Submission.findByIdAndUpdate(
+      req.params.id,
+      { status, reviewedBy: req.user.sub, reviewedAt: status === 'reviewed' ? new Date() : null },
+      { new: true, runValidators: true }
+    );
+    if (!submission) return res.status(404).json({ error: 'Submission not found.' });
+    await writeAudit({
+      schemaId: submission.schemaId,
+      userId: req.user.sub,
+      userEmail: req.user.email,
+      action: 'review',
+      source: 'human',
+      meta: { submissionId: submission._id, status }
+    });
+    return res.json(submission);
+  } catch (err) {
+    return res.status(400).json({ error: 'Review status could not be updated.' });
   }
 });
 

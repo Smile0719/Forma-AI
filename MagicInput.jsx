@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 export const MagicInput = ({ schemaId, apiBaseUrl, authFetch, onProvider, onExtractionComplete }) => {
   const [narrative, setNarrative] = useState('');
@@ -10,11 +10,28 @@ export const MagicInput = ({ schemaId, apiBaseUrl, authFetch, onProvider, onExtr
   const [isListening, setIsListening] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [transcriptionMode, setTranscriptionMode] = useState('');
+  const [configuredProviders, setConfiguredProviders] = useState(null);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const [speechSupported] = useState(
     typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${apiBaseUrl}/api/ai/status`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error('AI provider status is unavailable.');
+        return response.json();
+      })
+      .then((data) => {
+        if (!cancelled) setConfiguredProviders(Array.isArray(data.providers) ? data.providers : []);
+      })
+      .catch(() => {
+        if (!cancelled) setConfiguredProviders([]);
+      });
+    return () => { cancelled = true; };
+  }, [apiBaseUrl]);
 
   const toggleListening = () => {
     if (!speechSupported) {
@@ -102,7 +119,7 @@ export const MagicInput = ({ schemaId, apiBaseUrl, authFetch, onProvider, onExtr
     setError('');
 
     try {
-      const response = await fetch(`${apiBaseUrl}/api/ai/extract`, {
+      const response = await (authFetch || fetch)(`${apiBaseUrl}/api/ai/extract`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ schemaId, narrative })
@@ -133,7 +150,7 @@ export const MagicInput = ({ schemaId, apiBaseUrl, authFetch, onProvider, onExtr
       const body = new FormData();
       body.append('schemaId', schemaId);
       body.append('document', file);
-      const response = await fetch(`${apiBaseUrl}/api/ai/upload`, { method: 'POST', body });
+      const response = await (authFetch || fetch)(`${apiBaseUrl}/api/ai/upload`, { method: 'POST', body });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Document parsing failed.');
       onProvider?.(data.provider || '');
@@ -158,6 +175,11 @@ export const MagicInput = ({ schemaId, apiBaseUrl, authFetch, onProvider, onExtr
       <p className="magic-copy">
         Type or speak your story in any supported language to automatically pre-fill form fields.
       </p>
+      {configuredProviders && configuredProviders.length > 0
+        ? <p className="provider-badge">AI ready: {configuredProviders.join(', ')}</p>
+        : configuredProviders
+          ? <p className="magic-error" role="status">AI is not configured. Add OPENAI_API_KEY to the backend .env file and restart the server.</p>
+          : null}
 
       <div className="magic-controls">
         <label htmlFor="narrative-language">Story language</label>

@@ -6,7 +6,7 @@ const FieldSchema = new mongoose.Schema({
   label: { type: String, required: true },
   type: {
     type: String,
-    enum: ['text', 'number', 'select', 'checkbox'],
+    enum: ['text', 'textarea', 'email', 'date', 'number', 'select', 'radio', 'checkbox'],
     required: true
   },
   placeholder: { type: String },
@@ -15,18 +15,19 @@ const FieldSchema = new mongoose.Schema({
     required: { type: Boolean, default: false },
     pattern: { type: String },
     minLength: { type: Number },
-    maxLength: { type: Number }
+    maxLength: { type: Number },
+    minimum: { type: Number },
+    maximum: { type: Number }
   },
-  showIf: {
-    field: { type: String },
-    equals: { type: mongoose.Schema.Types.Mixed }
-  }
+  showIf: { type: mongoose.Schema.Types.Mixed }
 });
 
 const DynamicFormSchema = new mongoose.Schema({
   title: { type: String, required: true },
   description: { type: String },
   version: { type: Number, default: 1 },
+  archived: { type: Boolean, default: false },
+  archivedAt: { type: Date },
   fields: [FieldSchema]
 }, { timestamps: true });
 
@@ -40,11 +41,16 @@ const FormRevisionSchema = new mongoose.Schema({
 const FormDraftSchema = new mongoose.Schema({
   schemaId: { type: mongoose.Schema.Types.ObjectId, ref: 'DynamicForm', required: true },
   clientId: { type: String, required: true },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   values: { type: mongoose.Schema.Types.Mixed, required: true },
   savedAt: { type: Date, default: Date.now }
 }, { timestamps: true });
 
 FormDraftSchema.index({ schemaId: 1, clientId: 1 }, { unique: true });
+FormDraftSchema.index(
+  { schemaId: 1, userId: 1 },
+  { unique: true, partialFilterExpression: { userId: { $exists: true } } }
+);
 
 const UserSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true, lowercase: true, trim: true },
@@ -61,6 +67,8 @@ const SubmissionSchema = new mongoose.Schema({
   provenance: { type: mongoose.Schema.Types.Mixed },
   confidence: { type: mongoose.Schema.Types.Mixed },
   reviewRequired: { type: Boolean, default: false },
+  reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  reviewedAt: { type: Date },
   status: { type: String, enum: ['submitted', 'reviewed'], default: 'submitted' }
 }, { timestamps: true });
 
@@ -69,7 +77,7 @@ const AuditLogSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   userEmail: { type: String },
   clientId: { type: String },
-  action: { type: String, enum: ['fill', 'edit', 'submit', 'restore'], required: true },
+  action: { type: String, enum: ['fill', 'edit', 'submit', 'restore', 'review'], required: true },
   fieldName: { type: String },
   source: { type: String, enum: ['ai', 'human', 'system'], required: true },
   confidence: { type: Number, min: 0, max: 100 },
