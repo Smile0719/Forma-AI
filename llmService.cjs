@@ -3,6 +3,9 @@ const { ChatAnthropic } = require('@langchain/anthropic');
 const { PromptTemplate } = require('@langchain/core/prompts');
 const { JsonOutputParser } = require('@langchain/core/output_parsers');
 
+const hasUsableApiKey = (apiKey) =>
+  typeof apiKey === 'string' && apiKey.trim() !== '' && !/^(your[_ -].*key|change-me|placeholder)$/i.test(apiKey.trim());
+
 /**
  * Build the ordered list of LLM providers to try.
  * Primary: GPT-4o, then Anthropic Claude 3.5 Sonnet, then local Ollama Llama 3.
@@ -11,19 +14,23 @@ const { JsonOutputParser } = require('@langchain/core/output_parsers');
 const buildProviderChain = () => {
   const providers = [];
 
-  if (process.env.OPENAI_API_KEY) {
+  if (hasUsableApiKey(process.env.OPENAI_API_KEY)) {
+    const modelName = process.env.OPENAI_MODEL || 'gpt-4o';
     providers.push({
-      name: 'openai:gpt-4o',
+      name: `openai:${modelName}`,
       model: new ChatOpenAI({
-        modelName: 'gpt-4o',
+        model: modelName,
         temperature: 0,
         timeout: 30000,
-        openAIApiKey: process.env.OPENAI_API_KEY
+        openAIApiKey: process.env.OPENAI_API_KEY,
+        configuration: process.env.OPENAI_BASE_URL
+          ? { baseURL: process.env.OPENAI_BASE_URL }
+          : undefined
       })
     });
   }
 
-  if (process.env.ANTHROPIC_API_KEY) {
+  if (hasUsableApiKey(process.env.ANTHROPIC_API_KEY)) {
     providers.push({
       name: 'anthropic:claude-3-5-sonnet',
       model: new ChatAnthropic({
