@@ -165,6 +165,14 @@ app.delete('/api/schemas/:id', requireRole('admin'), async (req, res) => {
     const schema = await DynamicForm.findById(req.params.id);
     if (!schema || schema.archived) return res.status(404).json({ error: 'Schema not found.' });
     await DynamicForm.findByIdAndUpdate(req.params.id, { archived: true, archivedAt: new Date() }, { new: true });
+    await writeAudit({
+      schemaId: schema._id,
+      userId: req.user.sub,
+      userEmail: req.user.email,
+      action: 'edit',
+      source: 'human',
+      meta: { operation: 'archive-schema', title: schema.title }
+    });
     return res.json({ success: true, archived: true });
   } catch (err) {
     return res.status(500).json({ error: 'Schema could not be archived.' });

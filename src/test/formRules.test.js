@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { evaluateCondition, isFieldVisible, validateSubmission } from "../../formRules.js";
+import {
+  evaluateCondition,
+  isFieldVisible,
+  validateSchemaDefinition,
+  validateSubmission,
+} from "../../formRules.js";
 
 describe("conditional form rules", () => {
   const fields = [
@@ -30,6 +35,36 @@ describe("conditional form rules", () => {
     };
     expect(evaluateCondition(condition, { incidentType: "collision", atFault: false, policeReportFiled: true }, fields)).toBe(true);
     expect(evaluateCondition(condition, { incidentType: "property", atFault: true }, fields)).toBe(false);
+  });
+});
+
+describe("schema validation", () => {
+  it("allows chained and nested visibility rules", () => {
+    expect(validateSchemaDefinition([
+      { name: "kind", type: "select", options: [{ label: "Auto", value: "auto" }] },
+      { name: "vehicle", type: "text", showIf: { field: "kind", equals: "auto" } },
+      {
+        name: "registration",
+        type: "text",
+        showIf: {
+          operator: "all",
+          conditions: [
+            { field: "kind", equals: "auto" },
+            { field: "vehicle", equals: "Honda" },
+          ],
+        },
+      },
+    ])).toEqual([]);
+  });
+
+  it("rejects missing condition targets and circular dependencies", () => {
+    const errors = validateSchemaDefinition([
+      { name: "a", type: "text", showIf: { field: "b", equals: "yes" } },
+      { name: "b", type: "text", showIf: { field: "a", equals: "yes" } },
+      { name: "c", type: "text", showIf: { field: "missing", equals: true } },
+    ]);
+    expect(errors).toContain("Visibility conditions cannot contain circular dependencies.");
+    expect(errors).toContain('Field "c" depends on a field that does not exist.');
   });
 });
 
