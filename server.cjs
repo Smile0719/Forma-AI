@@ -13,7 +13,9 @@ const formRules = import('./formRules.js');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'forma-ai-dev-secret-change-me';
+const JWT_SECRET = process.env.JWT_SECRET ||
+  (process.env.NODE_ENV === 'production' ? '' : 'forma-ai-dev-secret-change-me');
+if (!JWT_SECRET) throw new Error('JWT_SECRET must be configured in production.');
 
 const signToken = (user) =>
   jwt.sign({ sub: user._id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
