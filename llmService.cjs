@@ -181,4 +181,4 @@ const transcribeAudio = async (buffer, filename = 'audio.webm') => {
   return { text: data.text, provider: 'openai:whisper-1' };
 };
 
-module.exports = {extractFormData, transcribeAudio, buildProviderChain};
+module.exports =  {extractFormData, transcribeAudio, buildProviderChain};
