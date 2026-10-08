@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import brandLogo from './logo.jpeg';
 import {
   closestCenter,
   DndContext,
@@ -112,6 +113,10 @@ export default function AdminDashboard({ schema, apiBaseUrl, authToken, onClose,
   const [selectedSubmission, setSelectedSubmission] = useState(null);
   const [claimFilterSchemaId, setClaimFilterSchemaId] = useState('all');
   const [loadingSubmissions, setLoadingSubmissions] = useState(false);
+  const [activeView, setActiveView] = useState('overview');
+  const [submissionSearch, setSubmissionSearch] = useState('');
+  const [submissionStatus, setSubmissionStatus] = useState('all');
+  const [serviceStatus, setServiceStatus] = useState('checking');
   const sensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
 
   const updateField = (index, field) => setFields((current) => current.map((item, itemIndex) => itemIndex === index ? field : item));
@@ -154,6 +159,47 @@ export default function AdminDashboard({ schema, apiBaseUrl, authToken, onClose,
     loadSubmissions();
   }, [schema._id]);
   useEffect(() => { loadSchemas(); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${apiBaseUrl}/api/health`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Form service is unavailable.');
+        const data = await response.json();
+        const status = data.database === 'connected'
+          ? 'Connected'
+          : data.database === 'mock'
+            ? 'Local demo mode'
+            : 'Unavailable';
+        if (!cancelled) setServiceStatus(status);
+      })
+      .catch(() => {
+        if (!cancelled) setServiceStatus('Unavailable');
+      });
+    return () => { cancelled = true; };
+  }, [apiBaseUrl]);
+
+  const reviewQueue = submissions.filter((item) => item.reviewRequired && item.status !== 'reviewed');
+  const filteredSubmissions = submissions.filter((item) => {
+    const formMatches = claimFilterSchemaId === 'all' || String(item.schemaId) === claimFilterSchemaId;
+    const statusMatches = submissionStatus === 'all' || item.status === submissionStatus;
+    const searchText = `${item.userEmail || ''} ${item.clientId || ''} ${schemas.find((form) => String(form._id) === String(item.schemaId))?.title || ''}`.toLowerCase();
+    return formMatches && statusMatches && searchText.includes(submissionSearch.toLowerCase());
+  });
+  const weeklySubmissions = Array.from({ length: 7 }, (_, index) => {
+    const day = new Date();
+    day.setHours(0, 0, 0, 0);
+    day.setDate(day.getDate() - (6 - index));
+    const nextDay = new Date(day);
+    nextDay.setDate(nextDay.getDate() + 1);
+    return {
+      label: day.toLocaleDateString(undefined, { weekday: 'short' }),
+      count: submissions.filter((item) => {
+        const submittedAt = new Date(item.createdAt);
+        return submittedAt >= day && submittedAt < nextDay;
+      }).length
+    };
+  });
+  const weeklyMaximum = Math.max(1, ...weeklySubmissions.map((day) => day.count));
 
   const selectSchema = async (schemaId) => {
     const response = await fetch(`${apiBaseUrl}/api/schemas/${schemaId}`, { headers: authHeaders });
@@ -196,16 +242,21 @@ export default function AdminDashboard({ schema, apiBaseUrl, authToken, onClose,
   };
 
   const updateReviewStatus = async (submission) => {
-    const status = submission.status === 'reviewed' ? 'submitted' : 'reviewed';
-    const response = await fetch(`${apiBaseUrl}/api/submissions/${submission._id}`, {
-      method: 'PATCH',
-      headers: authHeaders,
-      body: JSON.stringify({ status })
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) return setMessage(data.error || 'Could not update claim review status.');
-    setSubmissions((current) => current.map((item) => item._id === data._id ? data : item));
-    setSelectedSubmission(data);
+    try {
+      const status = submission.status === 'reviewed' ? 'submitted' : 'reviewed';
+      const response = await fetch(`${apiBaseUrl}/api/submissions/${submission._id}`, {
+        method: 'PATCH',
+        headers: authHeaders,
+        body: JSON.stringify({ status })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Could not update submission review status.');
+      setSubmissions((current) => current.map((item) => item._id === data._id ? data : item));
+      setSelectedSubmission(data);
+      setMessage(`Submission marked ${status}.`);
+    } catch (error) {
+      setMessage(error.message || 'Could not update submission review status.');
+    }
   };
 
   const save = async () => {
@@ -221,8 +272,14 @@ export default function AdminDashboard({ schema, apiBaseUrl, authToken, onClose,
     }
   };
   const loadRevisions = async () => {
-    const response = await fetch(`${apiBaseUrl}/api/schemas/${schema._id}/revisions`);
-    setRevisions(await response.json());
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/schemas/${schema._id}/revisions`, { headers: authHeaders });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Could not load form revisions.');
+      setRevisions(Array.isArray(data) ? data : []);
+    } catch (error) {
+      setMessage(error.message || 'Could not load form revisions.');
+    }
   };
   const restore = async (revisionId) => {
     try {
@@ -239,53 +296,131 @@ export default function AdminDashboard({ schema, apiBaseUrl, authToken, onClose,
       setMessage(error.message || 'Could not restore this revision.');
     }
   };
+  useEffect(() => {
+    if (activeView === 'revisions') loadRevisions();
+  }, [activeView, schema._id]);
 
-  return <section className="admin-panel">
-    <div className="admin-header"><div><p className="eyebrow">Administrator view</p><h2>Form builder</h2></div><button type="button" className="text-button" onClick={onClose}>Close</button></div>
-    <div className="form-manager">
-      <label>Manage form<select value={schema._id} onChange={(event) => selectSchema(event.target.value)}>{schemas.map((item) => <option key={item._id} value={item._id}>{item.title} · v{item.version || 1}</option>)}</select></label>
-      <button type="button" className="secondary-button" onClick={createSchema}>Add form</button>
-      <button type="button" className="text-button" onClick={archiveSchema}>Archive form</button>
-    </div>
-    <label>Form title<input value={title} onChange={(event) => setTitle(event.target.value)} /></label>
-    <label>Form description<textarea value={description} onChange={(event) => setDescription(event.target.value)} /></label>
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-      <SortableContext items={fields.map((field) => field.name)} strategy={verticalListSortingStrategy}>
-        {fields.map((field, index) => <SortableField key={field.name} field={field} index={index} fields={fields} onChange={updateField} onRemove={removeField} />)}
-      </SortableContext>
-    </DndContext>
-    <div className="admin-actions"><button type="button" className="secondary-button" onClick={() => setFields((current) => [...current, emptyField(current.length + 1)])}>Add field</button><button type="button" className="submit-button admin-save" onClick={save}>Save form</button></div>
-    {message && <p className="draft-status" role="status">{message}</p>}
-    <details className="revision-list"><summary onClick={loadRevisions}>Revision history</summary>{revisions.map((revision) => <div key={revision._id}><span>Version {revision.version} · {new Date(revision.createdAt).toLocaleString()}</span><button type="button" className="text-button" onClick={() => restore(revision._id)}>Restore</button></div>)}</details>
+  const renderSubmissions = (limit) => {
+    const rows = filteredSubmissions.slice(0, limit || filteredSubmissions.length);
+    if (loadingSubmissions) return <p className="admin-empty">Loading submissions...</p>;
+    if (!rows.length) return <p className="admin-empty">No submissions match these filters.</p>;
+    return <div className="submission-table-wrap">
+      <table className="submission-table"><thead><tr><th>Submitted</th><th>Form</th><th>Respondent</th><th>Status</th><th>AI confidence</th><th>Review</th><th>Details</th></tr></thead>
+        <tbody>{rows.map((submission) => {
+          const confidenceValues = Object.values(submission.confidence || {}).filter((value) => typeof value === 'number');
+          const average = confidenceValues.length ? Math.round(confidenceValues.reduce((a, b) => a + b, 0) / confidenceValues.length) : null;
+          const formTitle = schemas.find((item) => String(item._id) === String(submission.schemaId))?.title || 'Archived form';
+          return <tr key={submission._id}>
+            <td>{new Date(submission.createdAt).toLocaleString()}</td><td>{formTitle}</td>
+            <td>{submission.userEmail || 'Anonymous'}</td>
+            <td><span className={`admin-status admin-status--${submission.status}`}>{submission.status}</span></td>
+            <td>{average === null ? '—' : `${average}%`}</td>
+            <td>{submission.reviewRequired ? <span className="admin-review-flag">Needs review</span> : 'Clear'}</td>
+            <td><button type="button" className="text-button" onClick={() => setSelectedSubmission(submission)}>Inspect</button></td>
+          </tr>;
+        })}</tbody>
+      </table>
+    </div>;
+  };
 
-    <section className="submission-panel">
-      <div className="admin-header"><div><p className="eyebrow">Reviewer workspace</p><h3>Claims overview</h3></div><button type="button" className="text-button" onClick={loadSubmissions}>Refresh</button></div>
-      <div className="claim-filters">
-        <label>Filter by form<select value={claimFilterSchemaId} onChange={(event) => setClaimFilterSchemaId(event.target.value)}><option value="all">All forms</option>{schemas.map((item) => <option key={item._id} value={item._id}>{item.title}</option>)}</select></label>
-        <span>{submissions.length} total claims</span>
-        <span>{submissions.filter((item) => item.reviewRequired && item.status !== 'reviewed').length} awaiting review</span>
-      </div>
-      {loadingSubmissions ? <p>Loading submissions...</p> : submissions.length === 0 ? <p>No submitted claims yet.</p> : (
-        <div className="submission-table-wrap">
-          <table className="submission-table"><thead><tr><th>Submitted</th><th>Form</th><th>User</th><th>Status</th><th>AI confidence</th><th>Manual review</th><th>Claim</th></tr></thead>
-            <tbody>{submissions.filter((item) => claimFilterSchemaId === 'all' || String(item.schemaId) === claimFilterSchemaId).map((submission) => {
-              const confidenceValues = Object.values(submission.confidence || {}).filter((value) => typeof value === 'number');
-              const average = confidenceValues.length ? Math.round(confidenceValues.reduce((a, b) => a + b, 0) / confidenceValues.length) : null;
-              const formTitle = schemas.find((item) => String(item._id) === String(submission.schemaId))?.title || 'Archived form';
-              return <tr key={submission._id}><td>{new Date(submission.createdAt).toLocaleString()}</td><td>{formTitle}</td><td>{submission.userEmail || submission.clientId || 'Anonymous'}</td><td>{submission.status}</td><td>{average === null ? '—' : `${average}%`}</td><td>{submission.reviewRequired ? 'Required' : 'Not flagged'}</td><td><button type="button" className="text-button" onClick={() => setSelectedSubmission(submission)}>Inspect</button></td></tr>;
-            })}</tbody>
-          </table>
+  const renderInspector = () => selectedSubmission && <article className="claim-inspector">
+    <div className="admin-header"><div><p className="eyebrow">Submission details</p><h4>{schemas.find((item) => String(item._id) === String(selectedSubmission.schemaId))?.title || 'Archived form'}</h4></div><button type="button" className="text-button" onClick={() => setSelectedSubmission(null)}>Close</button></div>
+    <dl>{Object.entries(selectedSubmission.values || {}).map(([name, value]) => {
+      const label = schemas.find((item) => String(item._id) === String(selectedSubmission.schemaId))?.fields.find((field) => field.name === name)?.label || name;
+      return <React.Fragment key={name}><dt>{label}</dt><dd>{typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value)}</dd></React.Fragment>;
+    })}</dl>
+    <p>{selectedSubmission.reviewRequired ? 'AI confidence requires human review.' : 'No low-confidence values were flagged.'}</p>
+    <button type="button" className="secondary-button" onClick={() => updateReviewStatus(selectedSubmission)}>{selectedSubmission.status === 'reviewed' ? 'Reopen review' : 'Mark reviewed'}</button>
+  </article>;
+
+  return <section className="admin-panel admin-dashboard">
+    <header className="admin-topbar">
+      <a className="admin-brand" href="/admin.html" aria-label="Forma AI admin home"><img className="admin-brand-logo" src={brandLogo} alt="" /><span>forma<span className="admin-brand-light">/</span></span></a>
+      <div className="admin-topbar-meta"><span className={`service-indicator ${serviceStatus === 'Connected' ? 'is-online' : ''}`} /> Form service: {serviceStatus}<button type="button" className="admin-exit" onClick={onClose}>Open form</button></div>
+    </header>
+    <div className="admin-layout">
+      <aside className="admin-sidebar">
+        <p className="admin-side-label">Workspace</p>
+        {[
+          ['overview', 'Overview', '⌂'],
+          ['builder', 'Form builder', '▤'],
+          ['submissions', 'Submissions', '↗'],
+          ['revisions', 'Revisions', '◷']
+        ].map(([view, label, icon]) => <button key={view} type="button" className={`admin-nav-item${activeView === view ? ' is-active' : ''}`} onClick={() => setActiveView(view)}><span aria-hidden="true">{icon}</span>{label}{view === 'submissions' && reviewQueue.length > 0 && <b>{reviewQueue.length}</b>}</button>)}
+        <div className="admin-sidebar-card"><span className="admin-sidebar-card-dot" /><strong>{schema.title}</strong><span>Published · version {schema.version || 1}</span><button type="button" onClick={() => setActiveView('builder')}>Edit current form <span aria-hidden="true">→</span></button></div>
+      </aside>
+
+      <div className="admin-content">
+        <div className="admin-page-heading">
+          <div><p className="eyebrow">Forma AI / Admin</p><h2>{activeView === 'overview' ? 'Workspace overview' : activeView === 'builder' ? 'Form builder' : activeView === 'submissions' ? 'Submissions' : 'Version history'}</h2><p>Manage your forms, track responses, and keep reviews moving.</p></div>
+          <div className="admin-heading-actions"><span className="admin-date">{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}</span><button type="button" className="secondary-button" onClick={loadSubmissions}>↻ Refresh</button></div>
         </div>
-      )}
-      {selectedSubmission && <article className="claim-inspector">
-        <div className="admin-header"><div><p className="eyebrow">Claim details</p><h4>{schemas.find((item) => String(item._id) === String(selectedSubmission.schemaId))?.title || 'Archived form'}</h4></div><button type="button" className="text-button" onClick={() => setSelectedSubmission(null)}>Close</button></div>
-        <dl>{Object.entries(selectedSubmission.values || {}).map(([name, value]) => {
-          const label = schemas.find((item) => String(item._id) === String(selectedSubmission.schemaId))?.fields.find((field) => field.name === name)?.label || name;
-          return <React.Fragment key={name}><dt>{label}</dt><dd>{typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value)}</dd></React.Fragment>;
-        })}</dl>
-        <p>{selectedSubmission.reviewRequired ? 'AI confidence requires human review.' : 'No low-confidence values were flagged.'}</p>
-        <button type="button" className="secondary-button" onClick={() => updateReviewStatus(selectedSubmission)}>{selectedSubmission.status === 'reviewed' ? 'Reopen review' : 'Mark reviewed'}</button>
-      </article>}
-    </section>
+        {message && <p className="admin-message" role="status">{message}</p>}
+
+        {activeView === 'overview' && <>
+          <div className="admin-stat-grid">
+            <article className="admin-stat-card"><span className="admin-stat-icon admin-stat-icon--peach">↗</span><span>Total submissions</span><strong>{submissions.length}</strong><small>Across all active forms</small></article>
+            <article className="admin-stat-card"><span className="admin-stat-icon admin-stat-icon--yellow">!</span><span>Awaiting review</span><strong>{reviewQueue.length}</strong><small>{reviewQueue.length ? 'Needs a human check' : 'You are all caught up'}</small></article>
+            <article className="admin-stat-card"><span className="admin-stat-icon admin-stat-icon--green">▤</span><span>Active forms</span><strong>{schemas.length || 1}</strong><small>{schemas.reduce((total, item) => total + (item.fields?.length || 0), 0) || fields.length} fields configured</small></article>
+            <article className="admin-stat-card"><span className="admin-stat-icon admin-stat-icon--blue">✓</span><span>Reviewed</span><strong>{submissions.filter((item) => item.status === 'reviewed').length}</strong><small>Submissions completed</small></article>
+          </div>
+          <div className="admin-overview-grid">
+            <section className="admin-card admin-chart-card">
+              <div className="admin-card-heading"><div><h3>Response activity</h3><p>Submissions received over the last 7 days</p></div><span className="admin-chart-total">{weeklySubmissions.reduce((total, day) => total + day.count, 0)} <small>this week</small></span></div>
+              <div className="admin-chart" role="img" aria-label="Bar chart showing daily form submissions for the last seven days">
+                {weeklySubmissions.map((day) => <div className="admin-chart-column" key={day.label}><span className="admin-chart-value">{day.count || ''}</span><div className="admin-chart-track"><span style={{ height: `${Math.max(day.count ? 12 : 4, (day.count / weeklyMaximum) * 100)}%` }} /></div><span className="admin-chart-label">{day.label}</span></div>)}
+              </div>
+            </section>
+            <section className="admin-card admin-form-card">
+              <div className="admin-card-heading"><div><h3>Current form</h3><p>Your active intake form</p></div><button type="button" className="text-button" onClick={() => setActiveView('builder')}>Edit form →</button></div>
+              <div className="admin-current-form"><span className="admin-form-symbol">F</span><div><strong>{schema.title}</strong><span>Version {schema.version || 1} · {fields.length} fields</span></div><span className="admin-published-pill">Published</span></div>
+              <p className="admin-form-description">{schema.description || 'No form description has been added yet.'}</p>
+              <div className="admin-form-footer"><span>Public form link</span><a href="/">{window.location.origin}/</a></div>
+            </section>
+          </div>
+          <section className="admin-card admin-recent-card">
+            <div className="admin-card-heading"><div><h3>Recent submissions</h3><p>A quick look at the latest form activity</p></div><button type="button" className="text-button" onClick={() => setActiveView('submissions')}>View all →</button></div>
+            {renderSubmissions(5)}
+          </section>
+        </>}
+
+        {activeView === 'builder' && <>
+          <div className="admin-card admin-builder-card">
+            <div className="admin-card-heading"><div><h3>Form settings</h3><p>Choose a form, then set its title, description, and fields.</p></div><span className="admin-published-pill">v{schema.version || 1} live</span></div>
+            <div className="form-manager">
+              <label>Manage form<select value={schema._id} onChange={(event) => selectSchema(event.target.value)}>{schemas.map((item) => <option key={item._id} value={item._id}>{item.title} · v{item.version || 1}</option>)}</select></label>
+              <button type="button" className="secondary-button" onClick={createSchema}>+ Add form</button>
+              <button type="button" className="text-button admin-archive" onClick={archiveSchema}>Archive form</button>
+            </div>
+            <label className="admin-form-label">Form title<input value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+            <label className="admin-form-label">Form description<textarea value={description} onChange={(event) => setDescription(event.target.value)} /></label>
+            <div className="admin-fields-heading"><div><h3>Form fields <span>{fields.length}</span></h3><p>Drag to reorder fields. Configure validation and visibility rules.</p></div><button type="button" className="secondary-button" onClick={() => setFields((current) => [...current, emptyField(current.length + 1)])}>+ Add field</button></div>
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={fields.map((field) => field.name)} strategy={verticalListSortingStrategy}>
+                {fields.map((field, index) => <SortableField key={field.name} field={field} index={index} fields={fields} onChange={updateField} onRemove={removeField} />)}
+              </SortableContext>
+            </DndContext>
+            <div className="admin-actions"><span>Changes are published as a new version.</span><button type="button" className="submit-button admin-save" onClick={save}>Save and publish</button></div>
+          </div>
+        </>}
+
+        {activeView === 'submissions' && <section className="admin-card admin-submissions-card">
+          <div className="admin-card-heading"><div><h3>All submissions</h3><p>Inspect responses and update review status.</p></div><span className="admin-total-pill">{submissions.length} total</span></div>
+          <div className="admin-table-filters">
+            <input aria-label="Search submissions" placeholder="Search respondent or form..." value={submissionSearch} onChange={(event) => setSubmissionSearch(event.target.value)} />
+            <select aria-label="Filter submissions by status" value={submissionStatus} onChange={(event) => setSubmissionStatus(event.target.value)}><option value="all">All statuses</option><option value="submitted">Submitted</option><option value="reviewed">Reviewed</option></select>
+            <select aria-label="Filter submissions by form" value={claimFilterSchemaId} onChange={(event) => setClaimFilterSchemaId(event.target.value)}><option value="all">All forms</option>{schemas.map((item) => <option key={item._id} value={item._id}>{item.title}</option>)}</select>
+          </div>
+          {renderSubmissions()}
+          {renderInspector()}
+        </section>}
+
+        {activeView === 'revisions' && <section className="admin-card admin-revisions-card">
+          <div className="admin-card-heading"><div><h3>Version history</h3><p>Restore a previous version of {schema.title}.</p></div><button type="button" className="secondary-button" onClick={loadRevisions}>↻ Refresh history</button></div>
+          <div className="admin-revision-current"><span className="admin-revision-dot" /><div><strong>Current version · v{schema.version || 1}</strong><span>{schema.title} · {fields.length} fields</span></div><span className="admin-published-pill">Live</span></div>
+          {revisions.length ? revisions.map((revision) => <div className="admin-revision-row" key={revision._id}><span className="admin-revision-dot admin-revision-dot--old" /><div><strong>Version {revision.version}</strong><span>{new Date(revision.createdAt).toLocaleString()}</span></div><button type="button" className="text-button" onClick={() => restore(revision._id)}>Restore version</button></div>) : <p className="admin-empty">Open this page to load the form's saved revisions.</p>}
+        </section>}
+      </div>
+    </div>
   </section>;
 }

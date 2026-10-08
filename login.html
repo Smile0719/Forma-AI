@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f3f6f1" />
+    <meta
+      name="description"
+      content="Sign in to your Forma AI workspace."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Space+Grotesk:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+    <title>Sign in | Forma AI</title>
+  </head>
+
+  <body>
+    <header class="site-header">
+      <div class="site-header-inner">
+        <a class="site-brand" href="/" aria-label="Forma AI home">
+          <img class="site-brand-logo" src="./logo.jpeg" alt="" />
+          <span>Forma<span class="site-brand-accent">/</span></span>
+        </a>
+        <div id="site-header-controls" class="site-header-controls"></div>
+      </div>
+    </header>
+    <main id="root">
+      <div class="app-shell app-shell--centered" aria-label="Loading Forma AI sign in">
+        <div class="loading-state" role="status">
+          <span class="loading-spinner" aria-hidden="true"></span>
+          <span>Loading your sign-in page...</span>
+        </div>
+      </div>
+    </main>
+    <footer class="site-footer">
+      <p>&copy; 2026 Forma AI</p>
+      <span>Thoughtful forms. Clearer answers.</span>
+    </footer>
+    <script type="module" src="/main.jsx"></script>
+  </body>
+</html>

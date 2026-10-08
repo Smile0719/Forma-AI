@@ -1,28 +1,31 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useForm } from "react-hook-form";
 import { MagicInput } from "./MagicInput";
 import AdminDashboard from "./AdminDashboard";
 import FormField from "./FormField";
+import brandLogo from "./logo.jpeg";
 import { isFieldVisible } from "./formRules.js";
 import "./styles.css";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+export const getPostLoginPath = (role) =>
+  role === "admin" ? "/admin/dashboard" : "/";
 
 /** Minimal JWT login/register panel used for role-based access control. */
-function AuthPanel({ user, apiBaseUrl, onAuthenticated, onSignOut }) {
+function AuthPanel({ user, apiBaseUrl, onAuthenticated, onSignOut, labels, allowRoleChoice = false }) {
   const [mode, setMode] = useState("login");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [accountType, setAccountType] = useState("claimer");
   const [error, setError] = useState("");
 
   if (user) {
     return (
       <div className="auth-panel auth-panel--signed-in">
         <span>
-          Signed in as <strong>{user.email}</strong> ({user.role})
+          {labels.signedInAs} <strong>{user.email}</strong> ({user.role})
         </span>
         <button type="button" className="text-button" onClick={onSignOut}>
-          Sign out
+          {labels.signOut}
         </button>
       </div>
     );
@@ -32,48 +35,77 @@ function AuthPanel({ user, apiBaseUrl, onAuthenticated, onSignOut }) {
     event.preventDefault();
     setError("");
     try {
+      const credentials = new FormData(event.currentTarget);
       const response = await fetch(`${apiBaseUrl}/api/auth/${mode}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({
+          email: String(credentials.get("email") || "").trim(),
+          password: String(credentials.get("password") || ""),
+          role: mode === "login" ? accountType : "claimer",
+        }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.token) {
         throw new Error(data.error || "Authentication failed.");
       }
-      onAuthenticated(data.token);
+      onAuthenticated(data.token, data.user);
     } catch (err) {
       setError(err.message);
     }
   };
 
   return (
-    <form className="auth-panel" onSubmit={submit}>
+    <form className="auth-panel" onSubmit={submit} autoComplete="on">
       <input
+        id="auth-email"
+        name="email"
         type="email"
-        placeholder="Email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
+        placeholder={labels.email}
+        aria-label={labels.email}
+        autoComplete="username"
         required
       />
       <input
+        id="auth-password"
+        name="password"
         type="password"
-        placeholder="Password (8+ characters)"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
+        placeholder={labels.password}
+        aria-label={labels.password}
+        autoComplete={mode === "login" ? "current-password" : "new-password"}
         minLength={8}
         required
       />
+      {allowRoleChoice && mode === "login" && (
+        <label className="auth-role-choice" htmlFor="auth-role">
+          {labels.loginType}
+          <select
+            id="auth-role"
+            name="role"
+            value={accountType}
+            onChange={(event) => setAccountType(event.target.value)}
+          >
+            <option value="claimer">{labels.claimerRole}</option>
+            <option value="admin">{labels.adminRole}</option>
+          </select>
+        </label>
+      )}
       <button type="submit" className="secondary-button">
-        {mode === "login" ? "Sign in" : "Create account"}
+        {mode === "login" ? labels.signIn : labels.createAccount}
       </button>
-      <button
-        type="button"
-        className="text-button"
-        onClick={() => setMode(mode === "login" ? "register" : "login")}
-      >
-        {mode === "login" ? "Need an account?" : "Have an account?"}
-      </button>
+      {(!allowRoleChoice || accountType === "claimer" || mode === "register") && (
+        <button
+          type="button"
+          className="text-button"
+          onClick={() => {
+            setError("");
+            setMode(mode === "login" ? "register" : "login");
+            setAccountType("claimer");
+          }}
+        >
+          {mode === "login" ? labels.needAccount : labels.haveAccount}
+        </button>
+      )}
       {error && <span className="field-error">{error}</span>}
     </form>
   );
@@ -84,8 +116,6 @@ const translations = {
     workspace: 'Adaptive intake workspace',
     title: 'Forma AI Engine',
     intro: 'Turn a quick description into a complete, validated form.',
-    admin: 'Open admin builder',
-    adminReturn: 'Return to claim',
     audit: 'Audit log',
     hideAudit: 'Hide audit log',
     loadError: 'We could not connect to the form service. Check that the backend is running and try again.',
@@ -99,14 +129,26 @@ const translations = {
     moodDay: 'Day mode',
     moodNight: 'Night mode',
     language: 'Language',
-    loading: 'Loading your workspace...'
+    openAdminBuilder: 'Open admin builder',
+    loading: 'Loading your workspace...',
+    email: 'Email',
+    password: 'Password (8+ characters)',
+    signedInAs: 'Signed in as',
+    signOut: 'Sign out',
+    needAccount: 'Need an account?',
+    haveAccount: 'Have an account?',
+    loginWelcome: 'Welcome to Forma AI',
+    loginHeading: 'Sign in to your workspace',
+    loginIntro: 'Access your forms and continue where you left off.',
+    loginSecurity: 'Your account keeps your workspace secure.',
+    loginType: 'Sign in as',
+    adminRole: 'Administrator',
+    claimerRole: 'Claimer'
   },
   es: {
     workspace: 'Espacio de ingreso adaptativo',
     title: 'Motor Forma AI',
     intro: 'Convierte una descripción breve en un formulario completo y validado.',
-    admin: 'Abrir creador',
-    adminReturn: 'Volver al formulario',
     audit: 'Registro de auditoría',
     hideAudit: 'Ocultar registro',
     loadError: 'No pudimos conectarnos al servicio del formulario. Comprueba que el backend esté activo y vuelve a intentarlo.',
@@ -120,14 +162,26 @@ const translations = {
     moodDay: 'Modo día',
     moodNight: 'Modo noche',
     language: 'Idioma',
-    loading: 'Cargando tu espacio de trabajo...'
+    openAdminBuilder: 'Abrir constructor de administración',
+    loading: 'Cargando tu espacio de trabajo...',
+    email: 'Correo electrónico',
+    password: 'Contraseña (8+ caracteres)',
+    signedInAs: 'Sesión iniciada como',
+    signOut: 'Cerrar sesión',
+    needAccount: '¿Necesitas una cuenta?',
+    haveAccount: '¿Ya tienes una cuenta?',
+    loginWelcome: 'Te damos la bienvenida a Forma AI',
+    loginHeading: 'Inicia sesión en tu espacio de trabajo',
+    loginIntro: 'Accede a tus formularios y continúa donde lo dejaste.',
+    loginSecurity: 'Tu cuenta mantiene seguro tu espacio de trabajo.',
+    loginType: 'Iniciar sesión como',
+    adminRole: 'Administrador',
+    claimerRole: 'Solicitante'
   },
   fr: {
     workspace: 'Espace d’intégration adaptatif',
     title: 'Forma AI Engine',
     intro: 'Transformez une description rapide en un formulaire complet et validé.',
-    admin: 'Ouvrir le builder',
-    adminReturn: 'Retour au formulaire',
     audit: 'Journal d’audit',
     hideAudit: 'Masquer le journal',
     loadError: 'Nous n’avons pas pu nous connecter au service de formulaire. Vérifiez que le backend fonctionne puis réessayez.',
@@ -141,14 +195,26 @@ const translations = {
     moodDay: 'Mode jour',
     moodNight: 'Mode nuit',
     language: 'Langue',
-    loading: 'Chargement de votre espace...'
+    openAdminBuilder: 'Ouvrir le constructeur administrateur',
+    loading: 'Chargement de votre espace...',
+    email: 'E-mail',
+    password: 'Mot de passe (8+ caractères)',
+    signedInAs: 'Connecté en tant que',
+    signOut: 'Se déconnecter',
+    needAccount: 'Besoin d’un compte ?',
+    haveAccount: 'Vous avez déjà un compte ?',
+    loginWelcome: 'Bienvenue sur Forma AI',
+    loginHeading: 'Connectez-vous à votre espace',
+    loginIntro: 'Accédez à vos formulaires et reprenez là où vous en étiez.',
+    loginSecurity: 'Votre compte protège votre espace de travail.',
+    loginType: 'Se connecter en tant que',
+    adminRole: 'Administrateur',
+    claimerRole: 'Demandeur'
   },
   hi: {
     workspace: 'अनुकूल इनटेक कार्यक्षेत्र',
     title: 'फॉर्मा AI इंजन',
     intro: 'एक छोटी विवरण को पूरा और सत्यापित फॉर्म में बदलें।',
-    admin: 'एडमिन बिल्डर खोलें',
-    adminReturn: 'फॉर्म पर वापस जाएँ',
     audit: 'ऑडिट लॉग',
     hideAudit: 'लॉग छिपाएँ',
     loadError: 'फॉर्म सेवा से कनेक्ट नहीं हो पाया। बैकएंड चल रहा है या नहीं देखें और फिर से प्रयास करें।',
@@ -162,14 +228,26 @@ const translations = {
     moodDay: 'डे मोड',
     moodNight: 'नाइट मोड',
     language: 'भाषा',
-    loading: 'आपका कार्यक्षेत्र लोड हो रहा है...'
+    openAdminBuilder: 'एडमिन बिल्डर खोलें',
+    loading: 'आपका कार्यक्षेत्र लोड हो रहा है...',
+    email: 'ईमेल',
+    password: 'पासवर्ड (8+ अक्षर)',
+    signedInAs: 'इस रूप में साइन इन',
+    signOut: 'साइन आउट',
+    needAccount: 'खाता चाहिए?',
+    haveAccount: 'पहले से खाता है?',
+    loginWelcome: 'Forma AI में आपका स्वागत है',
+    loginHeading: 'अपने कार्यक्षेत्र में साइन इन करें',
+    loginIntro: 'अपने फ़ॉर्म देखें और वहीं से जारी रखें जहाँ आपने छोड़ा था।',
+    loginSecurity: 'आपका खाता आपके कार्यक्षेत्र को सुरक्षित रखता है।',
+    loginType: 'इस रूप में साइन इन करें',
+    adminRole: 'व्यवस्थापक',
+    claimerRole: 'दावेदार'
   },
   de: {
     workspace: 'Adaptiver Eingabe-Bereich',
     title: 'Forma AI Engine',
     intro: 'Verwandle eine kurze Beschreibung in ein vollständiges, validiertes Formular.',
-    admin: 'Admin-Builder öffnen',
-    adminReturn: 'Zurück zum Formular',
     audit: 'Audit-Log',
     hideAudit: 'Log ausblenden',
     loadError: 'Die Formular-API konnte nicht erreicht werden. Prüfen Sie den Backend-Status und versuchen Sie es erneut.',
@@ -183,7 +261,21 @@ const translations = {
     moodDay: 'Tagesmodus',
     moodNight: 'Nachtmodus',
     language: 'Sprache',
-    loading: 'Arbeitsbereich wird geladen...'
+    openAdminBuilder: 'Admin-Builder öffnen',
+    loading: 'Arbeitsbereich wird geladen...',
+    email: 'E-Mail',
+    password: 'Passwort (mindestens 8 Zeichen)',
+    signedInAs: 'Angemeldet als',
+    signOut: 'Abmelden',
+    needAccount: 'Noch kein Konto?',
+    haveAccount: 'Sie haben bereits ein Konto?',
+    loginWelcome: 'Willkommen bei Forma AI',
+    loginHeading: 'Melden Sie sich in Ihrem Arbeitsbereich an',
+    loginIntro: 'Greifen Sie auf Ihre Formulare zu und machen Sie dort weiter, wo Sie aufgehört haben.',
+    loginSecurity: 'Ihr Konto schützt Ihren Arbeitsbereich.',
+    loginType: 'Anmelden als',
+    adminRole: 'Administrator',
+    claimerRole: 'Antragsteller'
   }
 };
 
@@ -196,8 +288,14 @@ export default function App() {
   const [submissionError, setSubmissionError] = useState("");
   const [confidenceScores, setConfidenceScores] = useState({});
   const initialPath = window.location.pathname;
+  const isLoginPage = initialPath === '/login.html' || initialPath === '/login';
   const routeSchemaId = initialPath.startsWith('/form/') ? initialPath.split('/form/')[1] : null;
-  const [showAdmin, setShowAdmin] = useState(initialPath === '/admin/dashboard');
+  const [showAdmin, setShowAdmin] = useState(
+    initialPath === '/admin/dashboard' || initialPath === '/admin.html',
+  );
+  const [showAuth, setShowAuth] = useState(
+    initialPath === '/admin/dashboard' || initialPath === '/admin.html',
+  );
   const [undoValues, setUndoValues] = useState(null);
   const [user, setUser] = useState(null);
   const [showAudit, setShowAudit] = useState(false);
@@ -244,17 +342,47 @@ export default function App() {
 
   // Decode stored token on mount to restore the session
   useEffect(() => {
-    if (!authToken) return setUser(null);
+    let cancelled = false;
+    if (!authToken) {
+      setUser(null);
+      return undefined;
+    }
+
+    const clearInvalidSession = () => {
+      if (cancelled) return;
+      window.localStorage.removeItem("forma-ai-token");
+      setAuthToken(null);
+      setUser(null);
+    };
+
     try {
       const payload = JSON.parse(atob(authToken.split(".")[1]));
       if (payload.exp * 1000 < Date.now()) {
-        window.localStorage.removeItem("forma-ai-token");
-        return setUser(null);
+        clearInvalidSession();
+        return undefined;
       }
       setUser({ email: payload.email, role: payload.role });
-    } catch {
-      setUser(null);
+      fetch(`${API_BASE_URL}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      }).then(async (response) => {
+        if (response.status === 401 || response.status === 403) {
+          clearInvalidSession();
+          return;
+        }
+        if (!response.ok) throw new Error(`Session verification failed (${response.status}).`);
+        const account = await response.json();
+        if (!account.email || !account.role) {
+          throw new Error("The session endpoint returned an invalid account.");
+        }
+        if (!cancelled) setUser({ email: account.email, role: account.role });
+      }).catch((error) => {
+        if (!cancelled) console.warn("Session verification unavailable:", error.message);
+      });
+    } catch (error) {
+      if (!cancelled) clearInvalidSession();
     }
+
+    return () => { cancelled = true; };
   }, [authToken]);
 
   const authFetch = (url, options = {}) => {
@@ -290,7 +418,14 @@ export default function App() {
 
   // Load the latest schema; only seed a default one when none exists yet
   const [schemaLoadAttempt, setSchemaLoadAttempt] = useState(0);
+  const schemaLoadPromiseRef = useRef(null);
   useEffect(() => {
+    if (isLoginPage) {
+      setLoading(false);
+      return undefined;
+    }
+    if (schemaLoadPromiseRef.current) return undefined;
+
     const fetchOrCreateSchema = async () => {
       setLoading(true);
       setLoadError("");
@@ -302,6 +437,7 @@ export default function App() {
           // No schema exists yet — seed an initial one
           response = await fetch(`${API_BASE_URL}/api/schemas/seed`, {
             method: "POST",
+            headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
           });
         }
         const data = await response.json().catch(() => ({}));
@@ -320,8 +456,14 @@ export default function App() {
       }
     };
 
-    fetchOrCreateSchema();
-  }, [schemaLoadAttempt, routeSchemaId]);
+    const request = fetchOrCreateSchema();
+    schemaLoadPromiseRef.current = request;
+    request.finally(() => {
+      if (schemaLoadPromiseRef.current === request) {
+        schemaLoadPromiseRef.current = null;
+      }
+    });
+  }, [authToken, isLoginPage, schemaLoadAttempt, routeSchemaId]);
 
   useEffect(() => {
     if (!draftKey) return;
@@ -457,6 +599,108 @@ export default function App() {
     }
   };
 
+  const headerControls = (
+    <>
+      <div className="site-header-actions">
+        <label className="header-language" htmlFor="ui-language">
+          <span>{t.language}</span>
+          <select
+            id="ui-language"
+            value={uiLanguage}
+            onChange={(event) => setUiLanguage(event.target.value)}
+          >
+            <option value="en">English</option>
+            <option value="es">Español</option>
+            <option value="fr">Français</option>
+            <option value="hi">हिन्दी</option>
+            <option value="de">Deutsch</option>
+          </select>
+        </label>
+        <button
+          type="button"
+          className="theme-toggle"
+          onClick={() => setTheme((current) => (current === 'day' ? 'night' : 'day'))}
+          aria-label={theme === 'day' ? t.moodNight : t.moodDay}
+        >
+          {theme === 'day' ? '☾' : '☀'} {theme === 'day' ? t.moodNight : t.moodDay}
+        </button>
+        {!isLoginPage && !showAdmin && (
+          <a className="site-login-toggle" href="/admin/dashboard">
+            {t.openAdminBuilder}
+          </a>
+        )}
+        {isLoginPage ? (
+          <a className="site-login-toggle" href="#login-card" aria-current="page">{t.signIn}</a>
+        ) : user ? (
+          <button
+            type="button"
+            className="site-login-toggle"
+            aria-expanded={showAuth}
+            onClick={() => setShowAuth((visible) => !visible)}
+          >
+            Account
+          </button>
+        ) : (
+          <a className="site-login-toggle" href="/login.html">{t.signIn}</a>
+        )}
+      </div>
+      {showAuth && !isLoginPage && (
+        <AuthPanel
+          user={user}
+          apiBaseUrl={API_BASE_URL}
+          labels={t}
+          onAuthenticated={(token) => {
+            window.localStorage.setItem("forma-ai-token", token);
+            setAuthToken(token);
+          }}
+          onSignOut={() => {
+            window.localStorage.removeItem("forma-ai-token");
+            setAuthToken(null);
+            setShowAuth(false);
+          }}
+        />
+      )}
+    </>
+  );
+  const headerControlsTarget = document.getElementById('site-header-controls');
+  const headerPortal = headerControlsTarget
+    ? createPortal(headerControls, headerControlsTarget)
+    : headerControls;
+
+  if (isLoginPage) {
+    return (
+      <>
+        {headerPortal}
+        <div className="app-shell login-page">
+          <section className="login-card" id="login-card">
+            <div className="login-card-heading">
+              <img className="login-card-icon" src={brandLogo} alt="Forma AI logo" />
+              <p className="eyebrow">{t.loginWelcome}</p>
+              <h1>{t.loginHeading}</h1>
+              <p>{t.loginIntro}</p>
+            </div>
+            <AuthPanel
+              user={user}
+              apiBaseUrl={API_BASE_URL}
+              labels={t}
+              allowRoleChoice
+              onAuthenticated={(token, account) => {
+                window.localStorage.setItem("forma-ai-token", token);
+                setAuthToken(token);
+                window.location.assign(getPostLoginPath(account?.role));
+              }}
+              onSignOut={() => {
+                window.localStorage.removeItem("forma-ai-token");
+                setAuthToken(null);
+              }}
+            />
+            <p className="login-card-note">{t.loginSecurity}</p>
+          </section>
+        </div>
+      </>
+    );
+  }
+
   const saveDraft = async () => {
     if (!schemaId) return;
     const values = formValuesRef.current;
@@ -487,84 +731,49 @@ export default function App() {
 
   if (loading) {
     return (
-      <main className="app-shell app-shell--centered">
-        <div className="loading-state" role="status">
-          <span className="loading-spinner" aria-hidden="true" />
-          <span>{t.loading}</span>
+      <>
+        {headerPortal}
+        <div className="app-shell app-shell--centered">
+          <div className="loading-state" role="status">
+            <span className="loading-spinner" aria-hidden="true" />
+            <span>{t.loading}</span>
+          </div>
         </div>
-      </main>
+      </>
     );
   }
 
   if (loadError) {
     return (
-      <main className="app-shell app-shell--centered">
-        <section className="state-panel" role="alert">
-          <span className="state-icon" aria-hidden="true">
-            !
-          </span>
-          <p className="eyebrow">Connection issue</p>
-          <h1>We could not load the form</h1>
-          <p>{loadError}</p>
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => setSchemaLoadAttempt((n) => n + 1)}
-          >
-            {t.retry}
-          </button>
-        </section>
-      </main>
+      <>
+        {headerPortal}
+        <div className="app-shell app-shell--centered">
+          <section className="state-panel" role="alert">
+            <span className="state-icon" aria-hidden="true">!</span>
+            <p className="eyebrow">Connection issue</p>
+            <h1>We could not load the form</h1>
+            <p>{loadError}</p>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => setSchemaLoadAttempt((n) => n + 1)}
+            >
+              {t.retry}
+            </button>
+          </section>
+        </div>
+      </>
     );
   }
 
   return (
-    <main className="app-shell">
+    <>
+      {headerPortal}
+      <div className={`app-shell${showAdmin ? ' app-shell--admin' : ''}`}>
       <header className="app-header">
-        <div className="header-controls">
-          <label className="theme-switch" htmlFor="ui-language">
-            <span>{t.language}</span>
-            <select
-              id="ui-language"
-              value={uiLanguage}
-              onChange={(event) => setUiLanguage(event.target.value)}
-            >
-              <option value="en">English</option>
-              <option value="es">Español</option>
-              <option value="fr">Français</option>
-              <option value="hi">हिन्दी</option>
-              <option value="de">Deutsch</option>
-            </select>
-          </label>
-          <button
-            type="button"
-            className="theme-toggle"
-            onClick={() => setTheme((current) => (current === 'day' ? 'night' : 'day'))}
-            aria-label={theme === 'day' ? t.moodNight : t.moodDay}
-          >
-            {theme === 'day' ? '☾' : '☀'} {theme === 'day' ? t.moodNight : t.moodDay}
-          </button>
-        </div>
         <p className="eyebrow">{t.workspace}</p>
         <h1>{t.title}</h1>
         <p className="app-intro">{t.intro}</p>
-        <button
-          type="button"
-          className="admin-toggle"
-          disabled={!user || user.role !== "admin"}
-          title={
-            user?.role === "admin"
-              ? undefined
-              : "Only admins can open the form builder"
-          }
-          onClick={() => {
-            const next = !showAdmin;
-            window.history.pushState({}, '', next ? '/admin/dashboard' : '/dashboard');
-            setShowAdmin(next);
-          }}
-        >
-          {showAdmin ? t.adminReturn : t.admin}
-        </button>
         {user?.role === "admin" || user?.role === "reviewer" ? (
           <button
             type="button"
@@ -578,19 +787,6 @@ export default function App() {
           </button>
         ) : null}
       </header>
-
-      <AuthPanel
-        user={user}
-        apiBaseUrl={API_BASE_URL}
-        onAuthenticated={(token) => {
-          window.localStorage.setItem("forma-ai-token", token);
-          setAuthToken(token);
-        }}
-        onSignOut={() => {
-          window.localStorage.removeItem("forma-ai-token");
-          setAuthToken(null);
-        }}
-      />
 
       {showAudit && (
         <section className="audit-panel">
@@ -613,13 +809,22 @@ export default function App() {
         </section>
       )}
 
-      {showAdmin && schema && (
+      {showAdmin && user?.role !== 'admin' && (
+        <section className="admin-access-note" role="status">
+          <p className="eyebrow">Administrator access</p>
+          <h2>Sign in with an admin account</h2>
+          <p>The dashboard is available to administrators only. Sign in above to manage forms and review submissions.</p>
+        </section>
+      )}
+
+      {showAdmin && schema && user?.role === 'admin' && (
         <AdminDashboard
           schema={schema}
           apiBaseUrl={API_BASE_URL}
           authToken={authToken}
           onClose={() => {
             setShowAdmin(false);
+            window.history.pushState({}, '', '/');
             setSchemaLoadAttempt((attempt) => attempt + 1);
           }}
           onSaved={(updatedSchema) => {
@@ -716,6 +921,7 @@ export default function App() {
           {submissionError && <p className="magic-error" role="alert">{submissionError}</p>}
         </form>
       )}
-    </main>
+      </div>
+    </>
   );
 }

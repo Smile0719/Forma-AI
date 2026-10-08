@@ -16,6 +16,11 @@ const bcrypt = require('bcryptjs');
 const JWT_SECRET = process.env.JWT_SECRET ||
   (process.env.NODE_ENV === 'production' ? '' : 'forma-ai-dev-secret-change-me');
 if (!JWT_SECRET) throw new Error('JWT_SECRET must be configured in production.');
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH || '';
+const ADMIN_CONFIGURED = Boolean(
+  ADMIN_EMAIL && /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(ADMIN_PASSWORD_HASH)
+);
 
 const signToken = (user) =>
   jwt.sign({ sub: user._id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
@@ -64,7 +69,7 @@ const upload = multer({
 });
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', database: mongoose.connection.readyState === 1 ? 'connected' : 'connecting' });
+  res.json({ status: 'ok', database: mongoose.connection.readyState === 1 ? 'connected' : 'mock' });
 });
 
 app.get('/api/ai/status', (_req, res) => {
@@ -78,18 +83,17 @@ app.post('/api/auth/register', async (req, res) => {
     if (!email || !password || password.length < 8) {
       return res.status(400).json({ error: 'Email and a password of at least 8 characters are required.' });
     }
-    const isFirstUser = (await User.countDocuments()) === 0;
-    const assignedRole = isFirstUser ? 'admin' : ['admin', 'reviewer', 'user'].includes(role) ? role : 'user';
-    if (!isFirstUser && (role === 'admin' || role === 'reviewer')) {
-      // Only admins can mint elevated accounts once one exists
-      if (!req.user || req.user.role !== 'admin') {
-        return res.status(403).json({ error: 'Only an admin can create admin or reviewer accounts.' });
-      }
+    if (role && !['claimer', 'user'].includes(role)) {
+      return res.status(403).json({ error: 'Only claimer accounts can be created through registration.' });
+    }
+    const normalizedEmail = String(email).trim().toLowerCase();
+    if (ADMIN_CONFIGURED && normalizedEmail === ADMIN_EMAIL) {
+      return res.status(409).json({ error: 'This email is reserved for the configured administrator.' });
     }
     const user = await User.create({
-      email,
+      email: normalizedEmail,
       passwordHash: await bcrypt.hash(password, 10),
-      role: assignedRole
+      role: 'user'
     });
     return res.status(201).json({ token: signToken(user), user: { email: user.email, role: user.role } });
   } catch (err) {
@@ -99,14 +103,55 @@ app.post('/api/auth/register', async (req, res) => {
 
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
-    const user = await User.findOne({ email: (email || '').toLowerCase() });
-    if (!user || !(await bcrypt.compare(password || '', user.passwordHash))) {
+    const { email, password, role = 'claimer' } = req.body || {};
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    if (!['admin', 'claimer'].includes(role)) {
+      return res.status(400).json({ error: 'Choose administrator or claimer sign-in.' });
+    }
+
+    if (role === 'admin') {
+      if (!ADMIN_CONFIGURED) {
+        return res.status(503).json({ error: 'Administrator sign-in is not configured on this server.' });
+      }
+      const isConfiguredAdmin = normalizedEmail === ADMIN_EMAIL &&
+        await bcrypt.compare(String(password || ''), ADMIN_PASSWORD_HASH);
+      if (!isConfiguredAdmin) {
+        return res.status(401).json({ error: 'Invalid email or password.' });
+      }
+
+      const existingAdmins = await User.find({ role: 'admin' });
+      for (const existingAdmin of existingAdmins) {
+        if (String(existingAdmin.email).toLowerCase() !== ADMIN_EMAIL) {
+          await User.findByIdAndUpdate(existingAdmin._id, { role: 'user' }, { new: true });
+        }
+      }
+
+      let user = await User.findOne({ email: ADMIN_EMAIL });
+      if (user) {
+        user = await User.findByIdAndUpdate(user._id, {
+          email: ADMIN_EMAIL,
+          passwordHash: ADMIN_PASSWORD_HASH,
+          role: 'admin'
+        }, { new: true });
+      } else {
+        user = await User.create({
+          email: ADMIN_EMAIL,
+          passwordHash: ADMIN_PASSWORD_HASH,
+          role: 'admin'
+        });
+      }
+
+      return res.json({ token: signToken(user), user: { email: user.email, role: user.role } });
+    }
+
+    const user = await User.findOne({ email: normalizedEmail });
+    if (!user || user.role !== 'user' || !(await bcrypt.compare(String(password || ''), user.passwordHash))) {
       return res.status(401).json({ error: 'Invalid email or password.' });
     }
     return res.json({ token: signToken(user), user: { email: user.email, role: user.role } });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    console.error('Authentication failed:', err.message);
+    return res.status(500).json({ error: 'Authentication is unavailable right now.' });
   }
 });
 
